@@ -1,0 +1,36 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:nexarats_test;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+  flyway:
+    enabled: false
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:nexarats_redis_dev}
+
+nexarats:
+  auth:
+    jwt:
+      issuer: nexarats-academy
+      audience: nexarats-clients
+      access-token-expiration-seconds: 900
+      refresh-token-expiration-seconds: 604800
+    argon2:
+      memory-cost: 4096
+      time-cost: 2
+      parallelism: 1
+      salt-length: 16
+      hash-length: 32
+    rate-limit:
+      login-attempts-per-minute: 5
+      general-requests-per-minute: 100

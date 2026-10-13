@@ -1,0 +1,372 @@
+openapi: 3.1.0
+info:
+  title: Nexarats Academy Identity & Authentication API
+  version: 1.0.0
+  description: >
+    Production-grade enterprise identity, multi-tenant session management,
+    RS256 JWT authorization, and role-based access control.
+servers:
+  - url: http://localhost:8085/api/v1
+    description: Local Core Backend Dev Server
+paths:
+  /auth/login:
+    post:
+      summary: Authenticate user with credentials
+      description: Issues short-lived RS256 JWT access token and sets HttpOnly refresh token cookie.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Authentication successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestProblem'
+        '401':
+          $ref: '#/components/responses/UnauthorizedProblem'
+        '429':
+          description: Rate limit exceeded
+
+  /auth/refresh:
+    post:
+      summary: Refresh access token and rotate refresh token
+      description: Atomically rotates opaque refresh token, detecting reuse/replay attacks.
+      parameters:
+        - in: header
+          name: X-Refresh-Token
+          schema:
+            type: string
+          description: Optional mobile bearer refresh token if not using HttpOnly cookie
+      responses:
+        '200':
+          description: Token refreshed and rotated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenRefreshResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedProblem'
+
+  /auth/logout:
+    post:
+      summary: Revoke active session and logout
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Session terminated and refresh cookie cleared
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Logged out successfully"
+
+  /auth/me:
+    get:
+      summary: Get authenticated identity profile
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Current user profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfileResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedProblem'
+
+  /auth/change-password:
+    post:
+      summary: Change password for authenticated user
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+      responses:
+        '200':
+          description: Password updated and prior sessions revoked
+
+  /auth/forgot-password:
+    post:
+      summary: Request password reset link/token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForgotPasswordRequest'
+      responses:
+        '200':
+          description: Generic confirmation response (no account enumeration)
+
+  /auth/reset-password:
+    post:
+      summary: Complete password reset using cryptographic token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPasswordRequest'
+      responses:
+        '200':
+          description: Password reset completed successfully
+
+  /auth/register:
+    post:
+      summary: Register self-service student account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '200':
+          description: Registration and onboarding successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+
+  /auth/switch-tenant:
+    post:
+      summary: Switch active tenant context for multi-organization users
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SwitchTenantRequest'
+      responses:
+        '200':
+          description: Active tenant context updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+        tenantSlug:
+          type: string
+          nullable: true
+        clientType:
+          type: string
+          enum: [WEB, MOBILE, API]
+          default: WEB
+
+    LoginResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+        expiresIn:
+          type: integer
+        user:
+          $ref: '#/components/schemas/UserSummary'
+        tenant:
+          $ref: '#/components/schemas/TenantSummary'
+        roles:
+          type: array
+          items:
+            type: string
+        permissions:
+          type: array
+          items:
+            type: string
+        refreshToken:
+          type: string
+          nullable: true
+
+    TokenRefreshResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+        expiresIn:
+          type: integer
+        refreshToken:
+          type: string
+          nullable: true
+
+    UserSummary:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+        firstName:
+          type: string
+        lastName:
+          type: string
+        avatarUrl:
+          type: string
+          nullable: true
+
+    TenantSummary:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+        name:
+          type: string
+        status:
+          type: string
+
+    UserProfileResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+        firstName:
+          type: string
+        lastName:
+          type: string
+        avatarUrl:
+          type: string
+          nullable: true
+        status:
+          type: string
+        tenant:
+          $ref: '#/components/schemas/TenantSummary'
+        roles:
+          type: array
+          items:
+            type: string
+        permissions:
+          type: array
+          items:
+            type: string
+
+    RegisterRequest:
+      type: object
+      required: [email, password, firstName, lastName]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+        firstName:
+          type: string
+        lastName:
+          type: string
+        phone:
+          type: string
+          nullable: true
+        tenantSlug:
+          type: string
+          nullable: true
+
+    ChangePasswordRequest:
+      type: object
+      required: [currentPassword, newPassword]
+      properties:
+        currentPassword:
+          type: string
+        newPassword:
+          type: string
+
+    ForgotPasswordRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+
+    ResetPasswordRequest:
+      type: object
+      required: [token, newPassword]
+      properties:
+        token:
+          type: string
+        newPassword:
+          type: string
+
+    SwitchTenantRequest:
+      type: object
+      required: [tenantId]
+      properties:
+        tenantId:
+          type: string
+          format: uuid
+
+    ProblemDetail:
+      type: object
+      required: [title, status]
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+        correlationId:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        invalidFields:
+          type: object
+          additionalProperties:
+            type: string
+
+  responses:
+    BadRequestProblem:
+      description: RFC 7807 Bad Request / Validation Failure
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+
+    UnauthorizedProblem:
+      description: RFC 7807 Unauthorized Failure
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'

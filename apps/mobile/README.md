@@ -84,4 +84,65 @@ apps/mobile/
 └── README.md                  # This architectural specification
 ```
 
-*Note: Mobile screens (42 planned) will be implemented starting in Phase 53 (Milestone 7). No mobile screens are implemented during Phase 1.*
+*Note: Mobile screens (42 planned) will be implemented starting in Phase 53 (Milestone 7). No mobile screens are built during Phase 2.*
+
+---
+
+## 5. Native Mobile Authentication & Secure Session Specification (Phase 2 Deliverable)
+
+### 5.1 Device Credential Storage vs. Web Cookies
+Unlike browser clients that use `HttpOnly`, `SameSite=Strict` cookies, the Flutter application interacts with the Phase 2 backend via standard REST Bearer headers:
+- **No Cookie Dependencies:** Flutter mobile HTTP calls do not rely on browser cookie parsers or browser session cookies.
+- **Hardware-Backed Storage:** Refresh tokens, user identifiers, and active tenant context must be persisted exclusively using `flutter_secure_storage`:
+  - **Android:** Encrypted using AES within the hardware-backed Android Keystore.
+  - **iOS:** Protected via the Secure Enclave and iOS Keychain Services with `kSecAttrAccessibleAfterFirstUnlock`.
+- **Zero LocalStorage:** Web-style `localStorage` or unencrypted `SharedPreferences` are strictly prohibited for access tokens or refresh tokens.
+
+### 5.2 Token Rotation & Dio Interceptor Strategy
+Mobile network communications via `dio` must employ a dedicated `AuthInterceptor`:
+```dart
+// Conceptual Dio Interceptor Pattern for Phase 53
+class AuthInterceptor extends QueuedInterceptor {
+  final SecureStorageService _storage;
+  final Dio _dio;
+
+  AuthInterceptor(this._storage, this._dio);
+
+  @override
+  Future<void> onRequest(RequestOptions options, RequestInterceptorHandler handler) async {
+    final token = await _storage.getAccessToken();
+    if (token != null) {
+      options.headers['Authorization'] = 'Bearer $token';
+    }
+    options.headers['X-Client-Type'] = 'MOBILE';
+    handler.next(options);
+  }
+
+  @override
+  Future<void> onError(DioException err, ErrorInterceptorHandler handler) async {
+    if (err.response?.statusCode == 401) {
+      // Synchronized refresh queue prevents concurrent rotation races
+      final success = await _rotateRefreshToken();
+      if (success) {
+        // Retry original request with newly rotated token
+        final retryOptions = err.requestOptions;
+        retryOptions.headers['Authorization'] = 'Bearer ${await _storage.getAccessToken()}';
+        final cloneReq = await _dio.fetch(retryOptions);
+        return handler.resolve(cloneReq);
+      }
+    }
+    handler.next(err);
+  }
+}
+```
+
+### 5.3 Mobile Replay Detection & Breach Defense
+- The backend enforces single-use refresh tokens with server-side SHA-256 hashing.
+- If a mobile refresh token replay is detected, the server immediately purges all active sessions for that user account across both mobile and web.
+- The Flutter client must respond to `401 Unauthorized` / `token reuse` errors by immediately clearing local hardware-backed storage and redirecting to the login screen.
+
+### 5.4 Multi-Tenant Switching on Mobile
+- Users belonging to multiple organizations can switch context via `POST /api/v1/auth/switch-tenant`.
+- Upon switching, the backend issues an updated access token scoped to the target tenant without requiring re-entering credentials.
+- The mobile client caches the current `tenant_id` and `tenant_slug` in secure storage and updates local SQLite `drift` database schemas to ensure offline data isolation.
+

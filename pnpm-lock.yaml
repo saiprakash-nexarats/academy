@@ -175,6 +175,9 @@ importers:
       '@hookform/resolvers':
         specifier: ^5.9.1
         version: 5.9.1(react-hook-form@7.90.0(@types/react@19.3.0)(react@19.3.0))(zod@4.6.6)
+      '@nexarats/api-contracts':
+        specifier: workspace:*
+        version: link:../../packages/api-contracts
       clsx:
         specifier: ^2.1.1
         version: 2.1.1

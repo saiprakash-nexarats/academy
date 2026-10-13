@@ -11,28 +11,30 @@ import {
   ContactPage,
   NotFoundPage,
 } from '@/pages'
-import { ModalProvider } from '@/context'
+import { ModalProvider, AuthProvider } from '@/context'
 import { ScrollToTop } from '@/components/common'
 
 export const App: React.FC = () => {
   return (
     <BrowserRouter>
       <ScrollToTop />
-      <ModalProvider>
-        <Routes>
-          <Route path="/" element={<MainLayout />}>
-            <Route index element={<HomePage />} />
-            <Route path="programs" element={<ProgramsPage />} />
-            <Route path="programs/:programId" element={<ProgramsPage />} />
-            <Route path="courses" element={<CoursesPage />} />
-            <Route path="mentors" element={<MentorsPage />} />
-            <Route path="success-stories" element={<SuccessStoriesPage />} />
-            <Route path="about" element={<AboutPage />} />
-            <Route path="contact" element={<ContactPage />} />
-            <Route path="*" element={<NotFoundPage />} />
-          </Route>
-        </Routes>
-      </ModalProvider>
+      <AuthProvider>
+        <ModalProvider>
+          <Routes>
+            <Route path="/" element={<MainLayout />}>
+              <Route index element={<HomePage />} />
+              <Route path="programs" element={<ProgramsPage />} />
+              <Route path="programs/:programId" element={<ProgramsPage />} />
+              <Route path="courses" element={<CoursesPage />} />
+              <Route path="mentors" element={<MentorsPage />} />
+              <Route path="success-stories" element={<SuccessStoriesPage />} />
+              <Route path="about" element={<AboutPage />} />
+              <Route path="contact" element={<ContactPage />} />
+              <Route path="*" element={<NotFoundPage />} />
+            </Route>
+          </Routes>
+        </ModalProvider>
+      </AuthProvider>
     </BrowserRouter>
   )
 }

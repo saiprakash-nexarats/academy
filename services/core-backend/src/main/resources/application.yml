@@ -18,7 +18,7 @@ spring:
   jpa:
     open-in-view: false
     hibernate:
-      ddl-auto: update
+      ddl-auto: validate
     properties:
       hibernate:
         format_sql: false
@@ -27,6 +27,35 @@ spring:
     baseline-on-migrate: true
     baseline-version: 0
     locations: classpath:db/migration
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:nexarats_redis_dev}
+      timeout: 2000ms
+
+nexarats:
+  auth:
+    bootstrap-secret: ${NEXARATS_AUTH_BOOTSTRAP_SECRET:dev-bootstrap-secret-2026}
+    jwt:
+      issuer: nexarats-academy
+      audience: nexarats-clients
+      access-token-expiration-seconds: 900 # 15 minutes
+      refresh-token-expiration-seconds: 604800 # 7 days
+      private-key-pem: ${JWT_PRIVATE_KEY_PEM:}
+      public-key-pem: ${JWT_PUBLIC_KEY_PEM:}
+    argon2:
+      memory-cost: 16384 # 16 MB memory cost for dev/test efficiency on 8GB host
+      time-cost: 3       # 3 iterations (OWASP compliant)
+      parallelism: 1
+      salt-length: 16
+      hash-length: 32
+    rate-limit:
+      login-attempts-per-minute: 5
+      general-requests-per-minute: 100
+      fallback-strategy: ${RATE_LIMIT_FALLBACK_STRATEGY:memory}
+    cookie:
+      secure: ${COOKIE_SECURE:false}
 
 server:
   port: ${SERVER_PORT:8085}

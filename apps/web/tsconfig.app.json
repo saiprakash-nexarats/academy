@@ -18,7 +18,8 @@
 
     /* Path Aliasing without deprecated baseUrl */
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@nexarats/api-contracts": ["../../packages/api-contracts/src/index.ts"]
     },
 
     /* Linting */

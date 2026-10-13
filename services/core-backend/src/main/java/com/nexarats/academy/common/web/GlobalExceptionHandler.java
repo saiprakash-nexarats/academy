@@ -61,6 +61,32 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(ex.getStatusCode()).body(problem);
     }
 
+    @ExceptionHandler(org.springframework.security.access.AccessDeniedException.class)
+    public ResponseEntity<ProblemDetail> handleAccessDeniedException(org.springframework.security.access.AccessDeniedException ex) {
+        ProblemDetail problem = ProblemDetail.forStatus(HttpStatus.FORBIDDEN);
+        problem.setTitle("Forbidden");
+        problem.setDetail("You do not have permission to perform this operation");
+        problem.setType(URI.create("urn:nexarats:error:forbidden"));
+        problem.setProperty("timestamp", Instant.now());
+        problem.setProperty("correlationId", getCorrelationId());
+
+        log.warn("Access denied [correlationId: {}]: {}", getCorrelationId(), ex.getMessage());
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(problem);
+    }
+
+    @ExceptionHandler(org.springframework.security.core.AuthenticationException.class)
+    public ResponseEntity<ProblemDetail> handleAuthenticationException(org.springframework.security.core.AuthenticationException ex) {
+        ProblemDetail problem = ProblemDetail.forStatus(HttpStatus.UNAUTHORIZED);
+        problem.setTitle("Unauthorized");
+        problem.setDetail(ex.getMessage() != null ? ex.getMessage() : "Authentication required");
+        problem.setType(URI.create("urn:nexarats:error:unauthorized"));
+        problem.setProperty("timestamp", Instant.now());
+        problem.setProperty("correlationId", getCorrelationId());
+
+        log.warn("Authentication failed [correlationId: {}]: {}", getCorrelationId(), ex.getMessage());
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(problem);
+    }
+
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ProblemDetail> handleIllegalArgumentException(IllegalArgumentException ex) {
         ProblemDetail problem = ProblemDetail.forStatus(HttpStatus.BAD_REQUEST);
