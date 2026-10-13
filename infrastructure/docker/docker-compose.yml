@@ -2,7 +2,7 @@ name: nexarats-academy-infra
 
 services:
   postgres:
-    image: postgres:16.8-alpine
+    image: postgres:16.8-bookworm
     container_name: nexarats-academy-postgres
     restart: unless-stopped
     environment:
