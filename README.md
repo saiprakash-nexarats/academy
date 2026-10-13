@@ -8,24 +8,24 @@
 [![React 19](https://img.shields.io/badge/React-19.0-61DAFB?logo=react&logoColor=black)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Vite](https://img.shields.io/badge/Vite-8.3-646CFF?logo=vite&logoColor=white)](https://vitejs.dev/)
-[![Flyway](https://img.shields.io/badge/Flyway-V1--V8-CC0200?logo=flyway&logoColor=white)](https://flywaydb.org/)
-[![Tests](https://img.shields.io/badge/Backend%20Tests-60%2F60%20Passing-brightgreen?logo=apachemaven)](https://maven.apache.org/)
-[![Status](https://img.shields.io/badge/Roadmap-Phase%204%20Completed-2563EB)](./docs/academy-roadmap/11_COMPLETE_70_PHASE_ROADMAP.md)
+[![Flyway](https://img.shields.io/badge/Flyway-V1--V9-CC0200?logo=flyway&logoColor=white)](https://flywaydb.org/)
+[![Tests](https://img.shields.io/badge/Backend%20Tests-70%2F70%20Passing-brightgreen?logo=apachemaven)](https://maven.apache.org/)
+[![Status](https://img.shields.io/badge/Roadmap-Phase%205%20Completed-2563EB)](./docs/academy-roadmap/11_COMPLETE_70_PHASE_ROADMAP.md)
 
-**Nexarats Academy** is an enterprise-grade education and learning management platform designed for universities, enterprise workforce upskilling, and multi-tenant SaaS academies. Built across a disciplined **70-phase engineering roadmap**, the platform delivers resilient identity governance, modular curriculum architectures, Redis-accelerated catalogs, and reactive user interfaces.
+**Nexarats Academy** is an enterprise-grade education and learning management platform designed for universities, enterprise workforce upskilling, and multi-tenant SaaS academies. Built across a disciplined **70-phase engineering roadmap**, the platform delivers resilient identity governance, modular curriculum architectures, Redis-accelerated catalogs, concurrent seat capacity controls, payment gateway abstractions, and reactive user interfaces.
 
 ---
 
 ## Table of Contents
 - [1. Executive Architectural Overview](#1-executive-architectural-overview)
 - [2. Monorepo Structure](#2-monorepo-structure)
-- [3. Completed Phases (0–4)](#3-completed-phases-04)
+- [3. Completed Phases (0–5)](#3-completed-phases-05)
 - [4. Core Technology Stack](#4-core-technology-stack)
-- [5. Database & Schema Migrations (Flyway V1–V8)](#5-database--schema-migrations-flyway-v1v8)
+- [5. Database & Schema Migrations (Flyway V1–V9)](#5-database--schema-migrations-flyway-v1v9)
 - [6. API Specifications & Endpoints](#6-api-specifications--endpoints)
 - [7. Local Development Quickstart](#7-local-development-quickstart)
 - [8. Automated Testing & Verification](#8-automated-testing--verification)
-- [9. Security, IAM & Multi-Tenancy Architecture](#9-security-iam--multi-tenancy-architecture)
+- [9. Security, IAM & Financial Safety Architecture](#9-security-iam--financial-safety-architecture)
 - [10. Roadmap Snapshot (Phases 0–69)](#10-roadmap-snapshot-phases-069)
 - [11. Documentation Directory](#11-documentation-directory)
 
@@ -43,28 +43,38 @@
 ┌─────────────────────────────────────────────────────────────────────────────────────────┐
 │                    NEXARATS CORE BACKEND (Spring Boot 4.1.1 + Modulith)                 │
 │                                                                                         │
-│   ┌───────────────────────────┐      ┌──────────────────────────┐                       │
-│   │   Identity & Auth Module  │      │ Academic & Catalog Module│                       │
-│   │   - Argon2id Hash Engine  │      │ - Dynamic Programs API   │                       │
-│   │   - RS256 JWT Tokenissuer │      │ - Modular Courses Engine │                       │
-│   │   - HttpOnly Cookie Store │      │ - Curriculum Hierarchy   │                       │
-│   │   - CSRF & Rate Limiter   │      │ - Versioning & Previews  │                       │
-│   └─────────────┬─────────────┘      └────────────┬─────────────┘                       │
-│                 │                                 │                                     │
-│                 ▼                                 ▼                                     │
-│   ┌───────────────────────────┐      ┌──────────────────────────┐                       │
-│   │  Tenant Context Resolver  │      │ Redis Cache Service      │                       │
-│   │  - Strict Server Scoping  │      │ - catalog:list:*         │                       │
-│   │  - Global vs Tenant Data  │      │ - catalog:course:*       │                       │
-│   └───────────────────────────┘      └──────────────────────────┘                       │
-└──────────────────────────┬────────────────────────┬─────────────────────────────────────┘
-                           │ JDBC / HikariPool      │ Jedis / Lettuce
-                           ▼                        ▼
-┌──────────────────────────────────────┐  ┌───────────────────────────────────────────────┐
-│     PostgreSQL 16.8 Database         │  │              Redis 7.4 In-Memory              │
-│  - Flyway Migrations V1 through V8   │  │  - Low-latency Catalog Cache                  │
-│  - RLS Policies & Strict Constraints │  │  - Rate Limiting Token Buckets                │
-└──────────────────────────────────────┘  └───────────────────────────────────────────────┘
+│   ┌───────────────────────────┐  ┌───────────────────────────┐  ┌─────────────────────┐ │
+│   │   Identity & Auth Module  │  │ Academic & Catalog Module │  │ Admissions Module   │ │
+│   │   - Argon2id Hash Engine  │  │ - Programs & Courses APIs │  │ - Application Engine│ │
+│   │   - RS256 JWT Tokenissuer │  │ - Curriculum Hierarchies  │  │ - Review & Decisions│ │
+│   │   - HttpOnly Cookie Store │  │ - Semantic Versioning     │  │ - Offer Acceptance  │ │
+│   └─────────────┬─────────────┘  └────────────┬──────────────┘  └──────────┬──────────┘ │
+│                 │                             │                            │            │
+│                 ▼                             ▼                            ▼            │
+│   ┌───────────────────────────┐  ┌───────────────────────────┐  ┌─────────────────────┐ │
+│   │  Tenant Context Resolver  │  │ Redis Cache Service       │  │ Cohort & Seats      │ │
+│   │  - Strict Server Scoping  │  │ - catalog:list:*          │  │ - Pessimistic Lock  │ │
+│   │  - Global vs Tenant Data  │  │ - catalog:course:*        │  │ - Seat Reservation  │ │
+│   └───────────────────────────┘  └───────────────────────────┘  └──────────┬──────────┘ │
+│                                                                            │            │
+│                 ┌──────────────────────────────────────────────────────────┘            │
+│                 ▼                                                                       │
+│   ┌───────────────────────────┐                                                         │
+│   │ Finance & Billing Module  │  ◄── PaymentCompletedEvent (Decoupled Domain Event)     │
+│   │ - Server Tuition Pricing  │                                                         │
+│   │ - Stripe & Razorpay SDK   │                                                         │
+│   │ - Webhook Replay Defense  │                                                         │
+│   │ - Immutable Paid Invoices │                                                         │
+│   └───────────────────────────┘                                                         │
+└──────────────────────────┬─────────────────────────────────────────┬────────────────────┘
+                           │ JDBC / HikariPool                       │ Jedis / Lettuce
+                           ▼                                         ▼
+┌──────────────────────────────────────────────────┐  ┌───────────────────────────────────┐
+│           PostgreSQL 16.8 Database               │  │        Redis 7.4 In-Memory        │
+│  - Flyway Migrations V1 through V9               │  │  - Low-latency Catalog Cache      │
+│  - RLS Policies & Strict Database Constraints    │  │  - Rate Limiting Token Buckets    │
+│  - Pessimistic Row Locking for Seat Capacity     │  │                                   │
+└──────────────────────────────────────────────────┘  └───────────────────────────────────┘
 ```
 
 ---
@@ -104,7 +114,7 @@ academy/
 
 ---
 
-## 3. Completed Phases (0–4)
+## 3. Completed Phases (0–5)
 
 | Phase | Title | Summary & Deliverables |
 |---|---|---|
@@ -113,6 +123,7 @@ academy/
 | **Phase 2** | **Enterprise Identity & RBAC** | Argon2id hashing, RS256 JWT key-rotation, HttpOnly cookies, CSRF double-submit protection, multi-tenant session isolation, audit logging, 34 automated security tests. |
 | **Phase 3** | **Dynamic Program Catalog** | PostgreSQL 16.8 dynamic career programs (`V7`), Redis caching (`catalog:list:*`), TanStack Query React integration, brand preservation (`#2563EB`). |
 | **Phase 4** | **Modular Course & Syllabus Engine** | Flyway `V8` schema, 8 migrated courses, 32 curriculum modules, 128 structured lessons, curriculum semantic versioning (`v1.0.0`), server-enforced lesson boundaries (403 on locked lessons), interactive React syllabus modal, 60/60 backend tests passing. |
+| **Phase 5** | **Admissions, Enrollment & Payments** | Flyway `V9` schema (12 tables), student application lifecycle, administrative reviews & offers, atomic pessimistic seat locking (`SELECT FOR UPDATE`), server-authoritative tuition pricing, provider-neutral payment gateway (`PaymentGateway` with Stripe, Razorpay & Test adapters), webhook replay protection, immutable invoices, React `EnrollModal.tsx` connected to real API, 70/70 backend tests passing. |
 
 ---
 
@@ -126,6 +137,7 @@ academy/
 - **Migrations:** Flyway Community Edition 10.x
 - **Caching:** Spring Data Redis, Lettuce Client, Redis 7.4 Alpine
 - **Validation:** Jakarta Validation 3.0, Problem Details (RFC 7807)
+- **Financial Architecture:** Integer minor units (`amountCents`), provider-neutral payment gateway abstraction
 
 ### Web Frontend
 - **Framework:** React 19.0 with TypeScript 5.8
@@ -145,7 +157,7 @@ academy/
 
 ---
 
-## 5. Database & Schema Migrations (Flyway V1–V8)
+## 5. Database & Schema Migrations (Flyway V1–V9)
 
 All schema evolutions are managed strictly through forward-only Flyway migrations under:
 `services/core-backend/src/main/resources/db/migration/`
@@ -160,6 +172,7 @@ All schema evolutions are managed strictly through forward-only Flyway migration
 | **V6** | `V6__fix_tenant_id_fk_constraints.sql` | Foreign key referential integrity constraints across tenant tables. |
 | **V7** | `V7__create_programs_and_categories_schema.sql` | Dynamic career programs, categories, and initial seed catalog. |
 | **V8** | `V8__create_courses_and_curriculum_schema.sql` | Modular courses, curriculum versions, modules, lessons, and `program_courses` M:N join. |
+| **V9** | `V9__admissions_and_enrollment_schema.sql` | Cohorts, tuition prices, applications, status history, admission offers, seat reservations, payment orders, transactions, webhooks, enrollments, and invoices. |
 
 ---
 
@@ -186,10 +199,36 @@ Shared OpenAPI 3.1 specifications and TypeScript definitions are located in `pac
 - `GET /api/v1/academic/courses/{slug}`: Course detail view, learning outcomes, and related career programs.
 - `GET /api/v1/academic/courses/{slug}/syllabus`: Published curriculum hierarchy with ordered modules and lesson summaries.
 - `GET /api/v1/academic/courses/{slug}/modules`: Ordered module list for active curriculum.
-- `GET /api/v1/academic/courses/{slug}/lessons/{lessonId}/preview`: Public lesson preview endpoint:
-  - Returns `200 OK` with sanitized content for previewable lessons (`is_previewable = true`).
-  - Returns `403 Forbidden` RFC 7807 problem details for locked lessons (`is_previewable = false`).
-- `POST /api/v1/academic/courses/{courseId}/versions/{versionId}/publish`: Atomically publish a curriculum version (administrative authority required).
+- `GET /api/v1/academic/courses/{slug}/lessons/{lessonId}/preview`: Public lesson preview endpoint (sanitized preview or 403 Forbidden).
+- `POST /api/v1/academic/courses/{courseId}/versions/{versionId}/publish`: Atomically publish curriculum version (admin only).
+
+### 6.4 Admissions & Student Applications (`/api/v1/admissions`)
+- `POST /api/v1/admissions/applications`: Submit student application (supports guest inquiries and authenticated learners).
+- `GET /api/v1/admissions/applications/mine`: Retrieve own applications for authenticated applicant.
+- `GET /api/v1/admissions/applications/{id}`: Application detail lookup (authorized owner or tenant admin).
+- `POST /api/v1/admissions/applications/{id}/withdraw`: Withdraw pending application prior to review.
+- `GET /api/v1/admissions/applications`: Paginated tenant applications list (admin/staff only).
+- `POST /api/v1/admissions/applications/{id}/review`: Review application with `APPROVED` or `REJECTED` decision.
+- `GET /api/v1/admissions/applications/{id}/offer`: Retrieve issued admission offer details.
+- `POST /api/v1/admissions/offers/{id}/accept`: Admitted learner accepts admission offer.
+- `POST /api/v1/admissions/offers/{id}/pay`: Initiate payment order for accepted admission offer.
+- `GET /api/v1/admissions/enrollments/mine`: Retrieve confirmed enrollments for authenticated learner.
+- `GET /api/v1/admissions/enrollments`: Tenant enrollments list (admin only).
+
+### 6.5 Cohorts & Seat Capacity (`/api/v1/admissions/cohorts`)
+- `GET /api/v1/admissions/cohorts`: Public list of active intakes with real-time available seat counts.
+- `GET /api/v1/admissions/cohorts/{id}`: Detailed cohort capacity and enrollment deadlines.
+
+### 6.6 Payment Orders & Webhooks (`/api/v1/payments`)
+- `POST /api/v1/payments/orders`: Initialize server-authoritative payment order with idempotency key.
+- `POST /api/v1/payments/orders/verify`: Verify payment signature and settle order.
+- `GET /api/v1/payments/orders/{id}`: Retrieve payment order status (owner or admin).
+- `POST /api/v1/payments/webhooks/{provider}`: Secure provider webhook callback with HMAC signature verification and replay defense.
+
+### 6.7 Tuition Invoicing & Billing (`/api/v1/billing/invoices`)
+- `GET /api/v1/billing/invoices/mine`: View own paid tuition invoices.
+- `GET /api/v1/billing/invoices/{id}`: Retrieve immutable invoice snapshot (owner or admin).
+- `GET /api/v1/billing/invoices`: List all tenant invoices (admin only).
 
 ---
 
@@ -220,7 +259,7 @@ docker ps
 ```
 
 ### Step 3: Run Database Migrations & Start Backend Service
-The Spring Boot application automatically executes Flyway migrations `V1` through `V8` on startup:
+The Spring Boot application automatically executes Flyway migrations `V1` through `V9` on startup:
 ```bash
 mvn -f services/core-backend/pom.xml spring-boot:run
 ```
@@ -247,7 +286,7 @@ mvn -f services/core-backend/pom.xml test
 **Current Test Results:**
 ```text
 [INFO] Results:
-[INFO] Tests run: 60, Failures: 0, Errors: 0, Skipped: 0
+[INFO] Tests run: 70, Failures: 0, Errors: 0, Skipped: 0
 [INFO] BUILD SUCCESS
 ```
 
@@ -261,26 +300,28 @@ pnpm run lint:web
 pnpm run build:web
 ```
 **Current Build Results:**
-- `oxlint`: 0 warnings, 0 errors across 84 files.
-- `vite build`: `✓ 2560 modules transformed`, bundle generated in `1.62s`.
+- `oxlint`: 0 warnings, 0 errors across 84 files in 83ms.
+- `vite build`: `✓ 2560 modules transformed`, bundle generated in `2.78s`.
 
 ---
 
-## 9. Security, IAM & Multi-Tenancy Architecture
+## 9. Security, IAM & Financial Safety Architecture
 
 1. **Server-Enforced Tenant Resolution:**
-   - Client headers (such as `X-Tenant-ID`) or request parameters are never trusted blindly for authorization.
+   - Client headers (`X-Tenant-ID`) or request parameters are never trusted for authorization.
    - Tenant context is extracted cryptographically from verified RS256 JWT claims (`tenant_id`, `sid`).
-2. **Defense-in-Depth Multi-Tenancy:**
-   - Platform-wide records (`tenant_id IS NULL`) are publicly discoverable.
-   - Tenant-scoped records (`tenant_id = {tenantId}`) are strictly isolated to the requesting tenant's verified session.
-   - Suspended tenants are barred from catalog, login, and token refresh operations.
-3. **Double-Submit CSRF Defense:**
-   - State-changing cookie operations (`/api/v1/auth/refresh`, `/api/v1/auth/logout`) require both the `nexarats_csrf_token` cookie and a matching `X-CSRF-Token` request header.
-4. **Server-Side Lesson Access Control:**
-   - Public users can view syllabus metadata and lessons marked with `is_previewable = true`.
-   - Requests for locked lessons are strictly rejected server-side with RFC 7807 `403 Forbidden` responses.
-   - Private lecture materials and capstone details cannot be bypassed through client-side state manipulation.
+2. **Atomic Pessimistic Concurrency for Cohort Capacity:**
+   - Row-level lock (`SELECT FOR UPDATE`) prevents overselling under high concurrency.
+   - Verified by multi-threaded race simulation: when 8 threads compete for 2 seats, exactly 2 succeed and 6 receive HTTP 409 Conflict.
+3. **Server-Authoritative Pricing & Integer Minor Units:**
+   - Client cannot modify tuition prices; amounts are resolved strictly server-side.
+   - Stored as integer minor units (`amount_cents`). Zero floating-point math.
+4. **Payment Webhook Replay Protection:**
+   - PostgreSQL unique constraint `(provider, event_id)` rejects duplicate webhooks idempotently without double-settlement.
+5. **Double-Submit CSRF Defense:**
+   - Cookie operations (`/api/v1/auth/refresh`, `/api/v1/auth/logout`) require both the `nexarats_csrf_token` cookie and a matching `X-CSRF-Token` request header.
+6. **Strict Invoice Access Control:**
+   - Invoices require learner ownership verification; cross-student access is rejected with HTTP 403 Forbidden.
 
 ---
 
@@ -288,11 +329,11 @@ pnpm run build:web
 
 Nexarats Academy is engineered across 70 discrete phases. Consult [`docs/academy-roadmap/11_COMPLETE_70_PHASE_ROADMAP.md`](./docs/academy-roadmap/11_COMPLETE_70_PHASE_ROADMAP.md) for full phase specifications:
 
-- **Phases 0–4 (Completed):** Groundwork, Monorepo Setup, Enterprise IAM & Auth, Dynamic Program Catalog, Modular Course & Syllabus Engine.
-- **Phase 5 (Next):** Admissions, Application Flow & Enrollment Engine.
-- **Phases 6–10:** Student LMS Core, Progress Engine, Video Player & Streaming Infrastructure.
+- **Phases 0–5 (Completed):** Groundwork, Monorepo Setup, Enterprise IAM & Auth, Dynamic Program Catalog, Modular Course & Syllabus Engine, Admissions, Enrollment & Payments Engine.
+- **Phase 6 (Next):** Student Learning Dashboard & Enrolled Content Engine.
+- **Phases 7–10:** Progress Engine, Video Player & Streaming LMS Infrastructure.
 - **Phases 11–20:** Capstone Projects, Mentorship Booking, Live Class Delivery, Quizzes & Grading.
-- **Phases 21–35:** Enterprise Multi-Tenant SaaS Dashboards, Analytics, Invoicing & Stripe/Razorpay.
+- **Phases 21–35:** Enterprise Multi-Tenant SaaS Dashboards, Analytics, Invoicing & Corporate Portals.
 - **Phases 36–50:** AI Tutor Subsystem (RAG + LangChain), Code Laboratory Sandbox, Automated Proctoring.
 - **Phases 51–69:** Cross-Platform Flutter Mobile Apps, Verification Badges, Enterprise HRMS Integrations, Global Scale.
 
@@ -307,10 +348,10 @@ All architectural blueprints, security models, database schemas, and milestone h
 - [`07_DOMAIN_AND_DATABASE_BLUEPRINT.md`](./docs/academy-roadmap/07_DOMAIN_AND_DATABASE_BLUEPRINT.md): Comprehensive relational ERD and table specifications.
 - [`10_SECURITY_PRIVACY_AND_TENANT_MODEL.md`](./docs/academy-roadmap/10_SECURITY_PRIVACY_AND_TENANT_MODEL.md): IAM, RBAC, tenant resolution, and data privacy policies.
 - [`11_COMPLETE_70_PHASE_ROADMAP.md`](./docs/academy-roadmap/11_COMPLETE_70_PHASE_ROADMAP.md): Complete 70-phase development roadmap.
-- [`32_PHASE_4_IMPLEMENTATION_REPORT.md`](./docs/academy-roadmap/32_PHASE_4_IMPLEMENTATION_REPORT.md): Phase 4 course catalog & syllabus implementation report.
-- [`33_PHASE_4_DATABASE_AND_API_REPORT.md`](./docs/academy-roadmap/33_PHASE_4_DATABASE_AND_API_REPORT.md): Phase 4 database schema and REST API report.
-- [`34_PHASE_4_TEST_AND_SECURITY_VALIDATION.md`](./docs/academy-roadmap/34_PHASE_4_TEST_AND_SECURITY_VALIDATION.md): Phase 4 automated test results and security evidence.
-- [`35_PHASE_5_READINESS_AND_GITHUB_HANDOFF.md`](./docs/academy-roadmap/35_PHASE_5_READINESS_AND_GITHUB_HANDOFF.md): Phase 5 readiness assessment and git synchronization baseline.
+- [`36_PHASE_5_IMPLEMENTATION_REPORT.md`](./docs/academy-roadmap/36_PHASE_5_IMPLEMENTATION_REPORT.md): Phase 5 admissions, enrollment, seat management & payments report.
+- [`37_PHASE_5_DATABASE_PAYMENT_AND_SECURITY_REPORT.md`](./docs/academy-roadmap/37_PHASE_5_DATABASE_PAYMENT_AND_SECURITY_REPORT.md): Phase 5 database schema, financial precision & security report.
+- [`38_PHASE_5_TEST_AND_VALIDATION_REPORT.md`](./docs/academy-roadmap/38_PHASE_5_TEST_AND_VALIDATION_REPORT.md): Phase 5 automated test results (70/70 passing) and validation evidence.
+- [`39_PHASE_6_READINESS_AND_GITHUB_HANDOFF.md`](./docs/academy-roadmap/39_PHASE_6_READINESS_AND_GITHUB_HANDOFF.md): Phase 6 readiness assessment and git synchronization baseline.
 
 ---
 
