@@ -55,6 +55,9 @@ The following items are strictly deferred to future phases:
 ## 4. Git Synchronization Baseline
 - **Approved Remote:** `https://github.com/surya7989/academy`
 - **Authorized Target Branch:** `master`
+- **Phase 5 Implementation Commit SHA:** `bcf14bfd6b1d52893ba2e462c9069364ce5b4ea5`
+- **Implementation Commit Title:** `feat(phase-5): implement admissions, enrollment, seat management and secure payment workflows`
+- **Verified Remote Master SHA:** `bcf14bfd6b1d52893ba2e462c9069364ce5b4ea5`
 - **Linear Push Policy:** Strictly fast-forward non-destructive push (`git push origin master`). No force push.
 
 ---
