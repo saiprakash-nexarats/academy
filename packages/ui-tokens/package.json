@@ -1,0 +1,14 @@
+{
+  "name": "@nexarats/ui-tokens",
+  "version": "0.1.0",
+  "description": "Authoritative design tokens and themes for Nexarats Academy web and mobile applications",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc"
+  },
+  "devDependencies": {
+    "typescript": "~6.0.2"
+  }
+}

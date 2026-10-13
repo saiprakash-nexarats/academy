@@ -1,0 +1,6 @@
+{
+  "name": "@nexarats/api-contracts",
+  "version": "0.1.0",
+  "description": "Shared API interfaces, DTOs, and OpenAPI schemas for Nexarats Academy",
+  "private": true
+}

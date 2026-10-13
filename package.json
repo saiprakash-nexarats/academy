@@ -1,0 +1,22 @@
+{
+  "name": "nexarats-academy-monorepo",
+  "private": true,
+  "version": "1.0.0",
+  "packageManager": "pnpm@12.11.2",
+  "scripts": {
+    "dev": "turbo run dev --filter=@nexarats/web",
+    "dev:web": "turbo run dev --filter=@nexarats/web",
+    "build": "turbo run build",
+    "build:web": "turbo run build --filter=@nexarats/web",
+    "lint": "turbo run lint",
+    "lint:web": "turbo run lint --filter=@nexarats/web",
+    "backend:build": "mvn -f services/core-backend/pom.xml compile",
+    "backend:test": "mvn -f services/core-backend/pom.xml test",
+    "docker:up": "docker compose -f infrastructure/docker/docker-compose.yml up -d",
+    "docker:down": "docker compose -f infrastructure/docker/docker-compose.yml down",
+    "docker:logs": "docker compose -f infrastructure/docker/docker-compose.yml logs -f"
+  },
+  "devDependencies": {
+    "turbo": "^2.4.4"
+  }
+}

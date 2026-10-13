@@ -1,0 +1,88 @@
+name: Nexarats Academy CI Pipeline
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master, develop]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Frontend (Web & Shared Tokens)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Install pnpm Package Manager
+        uses: pnpm/action-setup@v4
+        with:
+          version: 12.11.2
+
+      - name: Setup Node.js Runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'pnpm'
+
+      - name: Install Workspace Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run Web Lint (oxlint)
+        run: pnpm run lint:web
+
+      - name: Verify Web Production Build (tsc + vite)
+        run: pnpm run build:web
+
+  backend:
+    name: Core Backend (Java 21 & Spring Boot)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/core-backend
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Setup Java 21 LTS
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'maven'
+
+      - name: Maven Dependency Resolution & Compilation
+        run: mvn clean compile
+
+      - name: Run Unit, Context & Modulith Architecture Tests
+        run: mvn test
+
+  security:
+    name: Repository Security & Dependency Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks Secret Scanner
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Verify Secret Exclusion (.gitignore check)
+        run: |
+          if git status --ignored | grep -E '\.env$|\.env\.local'; then
+            echo "Private .env files must not be tracked!"
+            exit 1
+          fi
+          echo "Secret exclusion check passed."
