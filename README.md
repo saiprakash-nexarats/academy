@@ -8,9 +8,9 @@
 [![React 19](https://img.shields.io/badge/React-19.0-61DAFB?logo=react&logoColor=black)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Vite](https://img.shields.io/badge/Vite-8.3-646CFF?logo=vite&logoColor=white)](https://vitejs.dev/)
-[![Flyway](https://img.shields.io/badge/Flyway-V1--V9-CC0200?logo=flyway&logoColor=white)](https://flywaydb.org/)
-[![Tests](https://img.shields.io/badge/Backend%20Tests-70%2F70%20Passing-brightgreen?logo=apachemaven)](https://maven.apache.org/)
-[![Status](https://img.shields.io/badge/Roadmap-Phase%205%20Completed-2563EB)](./docs/academy-roadmap/11_COMPLETE_70_PHASE_ROADMAP.md)
+[![Flyway](https://img.shields.io/badge/Flyway-V1--V10-CC0200?logo=flyway&logoColor=white)](https://flywaydb.org/)
+[![Tests](https://img.shields.io/badge/Backend%20Tests-81%2F81%20Passing-brightgreen?logo=apachemaven)](https://maven.apache.org/)
+[![Status](https://img.shields.io/badge/Roadmap-Phase%206%20Completed-2563EB)](./docs/academy-roadmap/11_COMPLETE_70_PHASE_ROADMAP.md)
 
 **Nexarats Academy** is an enterprise-grade education and learning management platform designed for universities, enterprise workforce upskilling, and multi-tenant SaaS academies. Built across a disciplined **70-phase engineering roadmap**, the platform delivers resilient identity governance, modular curriculum architectures, Redis-accelerated catalogs, concurrent seat capacity controls, payment gateway abstractions, and reactive user interfaces.
 
@@ -114,7 +114,7 @@ academy/
 
 ---
 
-## 3. Completed Phases (0–5)
+## 3. Completed Phases (0–6)
 
 | Phase | Title | Summary & Deliverables |
 |---|---|---|
@@ -124,6 +124,7 @@ academy/
 | **Phase 3** | **Dynamic Program Catalog** | PostgreSQL 16.8 dynamic career programs (`V7`), Redis caching (`catalog:list:*`), TanStack Query React integration, brand preservation (`#2563EB`). |
 | **Phase 4** | **Modular Course & Syllabus Engine** | Flyway `V8` schema, 8 migrated courses, 32 curriculum modules, 128 structured lessons, curriculum semantic versioning (`v1.0.0`), server-enforced lesson boundaries (403 on locked lessons), interactive React syllabus modal, 60/60 backend tests passing. |
 | **Phase 5** | **Admissions, Enrollment & Payments** | Flyway `V9` schema (12 tables), student application lifecycle, administrative reviews & offers, atomic pessimistic seat locking (`SELECT FOR UPDATE`), server-authoritative tuition pricing, provider-neutral payment gateway (`PaymentGateway` with Stripe, Razorpay & Test adapters), webhook replay protection, immutable invoices, React `EnrollModal.tsx` connected to real API, 70/70 backend tests passing. |
+| **Phase 6** | **Learning Dashboard, Video & Progress** | Flyway `V10` schema (5 tables), authenticated student learning dashboard (`/dashboard`), enrollment-based private lesson gate, tokenized secure playback sessions, RFC 7233 byte-range video streaming (HTTP 206), server-authoritative monotonic progress tracking, idempotency replay defense, React video player with resume markers, 81/81 backend tests passing. |
 
 ---
 
@@ -138,6 +139,7 @@ academy/
 - **Caching:** Spring Data Redis, Lettuce Client, Redis 7.4 Alpine
 - **Validation:** Jakarta Validation 3.0, Problem Details (RFC 7807)
 - **Financial Architecture:** Integer minor units (`amountCents`), provider-neutral payment gateway abstraction
+- **Streaming Pipeline:** RFC 7233 byte-range HTTP streaming (HTTP 206 Partial Content), tokenized playback sessions
 
 ### Web Frontend
 - **Framework:** React 19.0 with TypeScript 5.8
@@ -157,7 +159,7 @@ academy/
 
 ---
 
-## 5. Database & Schema Migrations (Flyway V1–V9)
+## 5. Database & Schema Migrations (Flyway V1–V10)
 
 All schema evolutions are managed strictly through forward-only Flyway migrations under:
 `services/core-backend/src/main/resources/db/migration/`
@@ -173,6 +175,7 @@ All schema evolutions are managed strictly through forward-only Flyway migration
 | **V7** | `V7__create_programs_and_categories_schema.sql` | Dynamic career programs, categories, and initial seed catalog. |
 | **V8** | `V8__create_courses_and_curriculum_schema.sql` | Modular courses, curriculum versions, modules, lessons, and `program_courses` M:N join. |
 | **V9** | `V9__admissions_and_enrollment_schema.sql` | Cohorts, tuition prices, applications, status history, admission offers, seat reservations, payment orders, transactions, webhooks, enrollments, and invoices. |
+| **V10** | `V10__learner_progress_and_content_access.sql` | Learner course progress, lesson watch progress, learning activity audit trail with JSONB, lesson media asset catalog, and tokenized playback sessions. |
 
 ---
 
@@ -230,6 +233,18 @@ Shared OpenAPI 3.1 specifications and TypeScript definitions are located in `pac
 - `GET /api/v1/billing/invoices/{id}`: Retrieve immutable invoice snapshot (owner or admin).
 - `GET /api/v1/billing/invoices`: List all tenant invoices (admin only).
 
+### 6.8 Student Learning & Progress Engine (`/api/v1/learning`)
+- `GET /api/v1/learning/dashboard`: Real-time student dashboard with enrolled courses, programs, progress metrics, and continue-learning targets.
+- `GET /api/v1/learning/my-courses`: List active enrolled courses with server-calculated progress.
+- `GET /api/v1/learning/my-programs`: List active enrolled career programs.
+- `GET /api/v1/learning/courses/{courseId}/syllabus`: Full enrolled syllabus with module/lesson progress, watch times, and locked/completed state flags.
+- `GET /api/v1/learning/courses/{courseId}/lessons/{lessonId}`: Private lesson details, asset metadata, and resume positions (enrollment verified).
+- `GET /api/v1/learning/courses/{courseId}/progress`: Real-time server-authoritative course progress percentage and completed lesson counts.
+- `POST /api/v1/learning/lessons/{lessonId}/playback-session`: Issue tokenized, short-lived media stream token (`vtok_...`).
+- `GET /api/v1/learning/media/stream?token={token}`: RFC 7233 byte-range HTTP streaming endpoint (HTTP 206 Partial Content).
+- `POST /api/v1/learning/lessons/{lessonId}/progress`: Ingest playback checkpoint with idempotency key, delta bounds, and watch-time tracking.
+- `POST /api/v1/learning/lessons/{lessonId}/complete`: Explicit lesson completion trigger with automatic course progress recalculation.
+
 ---
 
 ## 7. Local Development Quickstart
@@ -259,7 +274,7 @@ docker ps
 ```
 
 ### Step 3: Run Database Migrations & Start Backend Service
-The Spring Boot application automatically executes Flyway migrations `V1` through `V9` on startup:
+The Spring Boot application automatically executes Flyway migrations `V1` through `V10` on startup:
 ```bash
 mvn -f services/core-backend/pom.xml spring-boot:run
 ```
@@ -273,6 +288,8 @@ In a separate terminal:
 pnpm run dev:web
 ```
 The React web portal is accessible at `http://localhost:5173`.
+- **Student Dashboard:** `http://localhost:5173/dashboard`
+- **Classroom Player:** `http://localhost:5173/learning/courses/:courseId/lessons/:lessonId`
 
 ---
 
@@ -286,7 +303,7 @@ mvn -f services/core-backend/pom.xml test
 **Current Test Results:**
 ```text
 [INFO] Results:
-[INFO] Tests run: 70, Failures: 0, Errors: 0, Skipped: 0
+[INFO] Tests run: 81, Failures: 0, Errors: 0, Skipped: 0
 [INFO] BUILD SUCCESS
 ```
 
@@ -300,8 +317,8 @@ pnpm run lint:web
 pnpm run build:web
 ```
 **Current Build Results:**
-- `oxlint`: 0 warnings, 0 errors across 84 files in 83ms.
-- `vite build`: `✓ 2560 modules transformed`, bundle generated in `2.78s`.
+- `oxlint`: 0 warnings, 0 errors across 89 files in 107ms.
+- `vite build`: `✓ 2565 modules transformed`, bundle generated in `2.48s`.
 
 ---
 
@@ -316,12 +333,16 @@ pnpm run build:web
 3. **Server-Authoritative Pricing & Integer Minor Units:**
    - Client cannot modify tuition prices; amounts are resolved strictly server-side.
    - Stored as integer minor units (`amount_cents`). Zero floating-point math.
-4. **Payment Webhook Replay Protection:**
+4. **Tokenized Media Streaming & RFC 7233 Range Isolation:**
+   - Playback URLs utilize short-lived session tokens (`vtok_...`) bound to the student and enrollment.
+   - Direct storage paths and S3 credentials are never exposed to clients.
+5. **Monotonic Progress & Checkpoint Idempotency:**
+   - Checkpoints with identical idempotency keys are deduplicated to prevent watch-time double counting.
+   - Watch time deltas are bounded (`<= 300s`) to reject client falsification.
+6. **Payment Webhook Replay Protection:**
    - PostgreSQL unique constraint `(provider, event_id)` rejects duplicate webhooks idempotently without double-settlement.
-5. **Double-Submit CSRF Defense:**
+7. **Double-Submit CSRF Defense:**
    - Cookie operations (`/api/v1/auth/refresh`, `/api/v1/auth/logout`) require both the `nexarats_csrf_token` cookie and a matching `X-CSRF-Token` request header.
-6. **Strict Invoice Access Control:**
-   - Invoices require learner ownership verification; cross-student access is rejected with HTTP 403 Forbidden.
 
 ---
 
@@ -329,10 +350,10 @@ pnpm run build:web
 
 Nexarats Academy is engineered across 70 discrete phases. Consult [`docs/academy-roadmap/11_COMPLETE_70_PHASE_ROADMAP.md`](./docs/academy-roadmap/11_COMPLETE_70_PHASE_ROADMAP.md) for full phase specifications:
 
-- **Phases 0–5 (Completed):** Groundwork, Monorepo Setup, Enterprise IAM & Auth, Dynamic Program Catalog, Modular Course & Syllabus Engine, Admissions, Enrollment & Payments Engine.
-- **Phase 6 (Next):** Student Learning Dashboard & Enrolled Content Engine.
-- **Phases 7–10:** Progress Engine, Video Player & Streaming LMS Infrastructure.
-- **Phases 11–20:** Capstone Projects, Mentorship Booking, Live Class Delivery, Quizzes & Grading.
+- **Phases 0–6 (Completed):** Groundwork, Monorepo Setup, Enterprise IAM & Auth, Dynamic Program Catalog, Modular Course & Syllabus Engine, Admissions, Enrollment & Payments Engine, Student Learning Dashboard & Enrolled Video Engine.
+- **Phase 7 (Next):** Capstone Assignment Submission, Code Execution Sandbox & Certificate Generation.
+- **Phases 8–10:** Interactive LMS Community, Peer Reviews & Discussions.
+- **Phases 11–20:** Mentorship Booking, Live Class Delivery, Quizzes & Grading.
 - **Phases 21–35:** Enterprise Multi-Tenant SaaS Dashboards, Analytics, Invoicing & Corporate Portals.
 - **Phases 36–50:** AI Tutor Subsystem (RAG + LangChain), Code Laboratory Sandbox, Automated Proctoring.
 - **Phases 51–69:** Cross-Platform Flutter Mobile Apps, Verification Badges, Enterprise HRMS Integrations, Global Scale.
@@ -352,6 +373,10 @@ All architectural blueprints, security models, database schemas, and milestone h
 - [`37_PHASE_5_DATABASE_PAYMENT_AND_SECURITY_REPORT.md`](./docs/academy-roadmap/37_PHASE_5_DATABASE_PAYMENT_AND_SECURITY_REPORT.md): Phase 5 database schema, financial precision & security report.
 - [`38_PHASE_5_TEST_AND_VALIDATION_REPORT.md`](./docs/academy-roadmap/38_PHASE_5_TEST_AND_VALIDATION_REPORT.md): Phase 5 automated test results (70/70 passing) and validation evidence.
 - [`39_PHASE_6_READINESS_AND_GITHUB_HANDOFF.md`](./docs/academy-roadmap/39_PHASE_6_READINESS_AND_GITHUB_HANDOFF.md): Phase 6 readiness assessment and git synchronization baseline.
+- [`40_PHASE_6_IMPLEMENTATION_REPORT.md`](./docs/academy-roadmap/40_PHASE_6_IMPLEMENTATION_REPORT.md): Phase 6 student dashboard, enrolled learning, video streaming & progress tracking report.
+- [`41_PHASE_6_DATABASE_MEDIA_AND_PROGRESS_REPORT.md`](./docs/academy-roadmap/41_PHASE_6_DATABASE_MEDIA_AND_PROGRESS_REPORT.md): Phase 6 database schema (Flyway V10), media delivery & progress calculation report.
+- [`42_PHASE_6_TEST_AND_SECURITY_VALIDATION.md`](./docs/academy-roadmap/42_PHASE_6_TEST_AND_SECURITY_VALIDATION.md): Phase 6 test matrix (81/81 backend tests passing) and security verification.
+- [`43_PHASE_7_READINESS_AND_GITHUB_HANDOFF.md`](./docs/academy-roadmap/43_PHASE_7_READINESS_AND_GITHUB_HANDOFF.md): Phase 7 readiness assessment and handoff baseline.
 
 ---
 

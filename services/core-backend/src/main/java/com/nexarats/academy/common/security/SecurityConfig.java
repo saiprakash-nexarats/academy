@@ -145,11 +145,19 @@ public class SecurityConfig {
                                 "/api/v1/payments/webhooks/**"
                         ).permitAll()
 
+                        // Authorized Media Streaming Endpoint (Session Token Validated at Service Level)
+                        .requestMatchers(
+                                org.springframework.http.HttpMethod.GET,
+                                "/api/v1/learning/media/stream",
+                                "/api/v1/learning/media/**"
+                        ).permitAll()
+
                         // Authenticated Operations
                         .requestMatchers(
                                 "/api/v1/auth/me",
                                 "/api/v1/auth/change-password",
-                                "/api/v1/auth/switch-tenant"
+                                "/api/v1/auth/switch-tenant",
+                                "/api/v1/learning/**"
                         ).authenticated()
 
                         // Default-Deny on all other routes

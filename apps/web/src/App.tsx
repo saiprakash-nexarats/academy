@@ -12,6 +12,8 @@ import {
   AboutPage,
   ContactPage,
   NotFoundPage,
+  DashboardPage,
+  CoursePlayerPage,
 } from '@/pages'
 import { ModalProvider, AuthProvider } from '@/context'
 import { ScrollToTop } from '@/components/common'
@@ -36,23 +38,27 @@ export const App: React.FC = () => {
         <ScrollToTop />
         <AuthProvider>
           <ModalProvider>
-          <Routes>
-            <Route path="/" element={<MainLayout />}>
-              <Route index element={<HomePage />} />
-              <Route path="programs" element={<ProgramsPage />} />
-              <Route path="programs/:programId" element={<ProgramDetailPage />} />
-              <Route path="courses" element={<CoursesPage />} />
-              <Route path="mentors" element={<MentorsPage />} />
-              <Route path="success-stories" element={<SuccessStoriesPage />} />
-              <Route path="about" element={<AboutPage />} />
-              <Route path="contact" element={<ContactPage />} />
-              <Route path="*" element={<NotFoundPage />} />
-            </Route>
-          </Routes>
-        </ModalProvider>
-      </AuthProvider>
-    </BrowserRouter>
-  </QueryClientProvider>
+            <Routes>
+              <Route path="/" element={<MainLayout />}>
+                <Route index element={<HomePage />} />
+                <Route path="programs" element={<ProgramsPage />} />
+                <Route path="programs/:programId" element={<ProgramDetailPage />} />
+                <Route path="courses" element={<CoursesPage />} />
+                <Route path="mentors" element={<MentorsPage />} />
+                <Route path="success-stories" element={<SuccessStoriesPage />} />
+                <Route path="about" element={<AboutPage />} />
+                <Route path="contact" element={<ContactPage />} />
+                <Route path="dashboard" element={<DashboardPage />} />
+                <Route path="learning" element={<DashboardPage />} />
+                <Route path="learning/courses/:courseId" element={<CoursePlayerPage />} />
+                <Route path="learning/courses/:courseId/lessons/:lessonId" element={<CoursePlayerPage />} />
+                <Route path="*" element={<NotFoundPage />} />
+              </Route>
+            </Routes>
+          </ModalProvider>
+        </AuthProvider>
+      </BrowserRouter>
+    </QueryClientProvider>
   )
 }
 

@@ -1,0 +1,165 @@
+openapi: 3.1.0
+info:
+  title: Nexarats Academy — Learning & Progress API
+  version: 1.0.0
+  description: REST API for learner dashboard, enrolled syllabus access, video playback session authorization, streaming delivery, and accurate progress tracking.
+servers:
+  - url: /api/v1/learning
+    description: Learning API Endpoint
+paths:
+  /dashboard:
+    get:
+      summary: Retrieve student learning dashboard
+      description: Returns authorized enrolled programs, enrolled courses, progress stats, and continue learning target for the authenticated learner.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Student dashboard details
+        '401':
+          description: Unauthorized
+  /my-courses:
+    get:
+      summary: Retrieve enrolled courses for student
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: List of enrolled courses
+  /courses/{courseId}/syllabus:
+    get:
+      summary: Retrieve enrolled student syllabus
+      parameters:
+        - name: courseId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Enrolled course syllabus with progress states
+        '403':
+          description: Forbidden (Learner not enrolled in this course)
+  /courses/{courseId}/lessons/{lessonId}:
+    get:
+      summary: Retrieve lesson content and navigation details
+      parameters:
+        - name: courseId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: lessonId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Private lesson details and media playback metadata
+        '403':
+          description: Forbidden (Not enrolled)
+  /courses/{courseId}/progress:
+    get:
+      summary: Retrieve detailed course progress
+      parameters:
+        - name: courseId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Course completion status
+  /lessons/{lessonId}/playback-session:
+    post:
+      summary: Authorize video playback session
+      parameters:
+        - name: lessonId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Playback session token and streaming URL
+        '403':
+          description: Forbidden (Not enrolled in this course)
+  /lessons/{lessonId}/progress:
+    post:
+      summary: Record playback progress checkpoint
+      parameters:
+        - name: lessonId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                playbackPositionSeconds:
+                  type: integer
+                watchTimeDeltaSeconds:
+                  type: integer
+                idempotencyKey:
+                  type: string
+      responses:
+        '200':
+          description: Progress recorded and updated completion status
+  /lessons/{lessonId}/complete:
+    post:
+      summary: Mark lesson completed
+      parameters:
+        - name: lessonId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Lesson completed and course progress recalculated
+  /media/stream:
+    get:
+      summary: Stream authorized video media
+      parameters:
+        - name: token
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Video stream
+        '206':
+          description: Partial byte range content
+        '403':
+          description: Invalid or expired playback token
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

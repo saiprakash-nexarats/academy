@@ -351,6 +351,24 @@ public class Course {
         this.curriculumVersions = curriculumVersions;
     }
 
+    public CurriculumVersion getPublishedVersion() {
+        if (publishedVersionId != null && curriculumVersions != null) {
+            for (CurriculumVersion v : curriculumVersions) {
+                if (publishedVersionId.equals(v.getId())) {
+                    return v;
+                }
+            }
+        }
+        if (curriculumVersions != null) {
+            for (CurriculumVersion v : curriculumVersions) {
+                if ("PUBLISHED".equals(v.getStatus())) {
+                    return v;
+                }
+            }
+        }
+        return null;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;

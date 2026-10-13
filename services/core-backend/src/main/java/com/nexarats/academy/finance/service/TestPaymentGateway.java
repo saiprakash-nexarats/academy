@@ -16,6 +16,22 @@ public class TestPaymentGateway implements PaymentGateway {
 
     private static final Logger log = LoggerFactory.getLogger(TestPaymentGateway.class);
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final org.springframework.core.env.Environment environment;
+
+    public TestPaymentGateway(org.springframework.core.env.Environment environment) {
+        this.environment = environment;
+    }
+
+    private void assertNotProduction() {
+        if (environment != null) {
+            String[] activeProfiles = environment.getActiveProfiles();
+            for (String profile : activeProfiles) {
+                if ("prod".equalsIgnoreCase(profile) || "production".equalsIgnoreCase(profile)) {
+                    throw new IllegalStateException("TestPaymentGateway is strictly disabled in production environments.");
+                }
+            }
+        }
+    }
 
     @Override
     public PaymentProvider getProvider() {
@@ -24,6 +40,7 @@ public class TestPaymentGateway implements PaymentGateway {
 
     @Override
     public GatewayOrderResult createOrder(PaymentOrder order, String customerEmail, String customerName) {
+        assertNotProduction();
         String providerOrderId = "test_ord_" + UUID.randomUUID().toString().replace("-", "").substring(0, 16);
         String clientSecret = "test_sec_" + UUID.randomUUID().toString().replace("-", "").substring(0, 24);
         String checkoutUrl = "https://checkout.test.nexarats.academy/pay/" + providerOrderId;
@@ -34,6 +51,7 @@ public class TestPaymentGateway implements PaymentGateway {
 
     @Override
     public GatewayVerificationResult verifyPayment(PaymentOrder order, String providerPaymentId, String signature) {
+        assertNotProduction();
         if (signature == null || (!signature.equals("test_valid_sig") && !signature.startsWith("valid_"))) {
             log.warn("TestPaymentGateway: Invalid payment verification signature for order {}", order.getOrderNumber());
             return new GatewayVerificationResult(false, null, null, "Invalid test payment verification signature.");
@@ -49,6 +67,7 @@ public class TestPaymentGateway implements PaymentGateway {
 
     @Override
     public WebhookProcessingResult processWebhook(String payload, String signatureHeader) {
+        assertNotProduction();
         if (signatureHeader == null || (!signatureHeader.equals("test_webhook_sig") && !signatureHeader.equals("valid_test_sig") && !signatureHeader.startsWith("sha256="))) {
             log.warn("TestPaymentGateway: Webhook rejected due to invalid signature header: {}", signatureHeader);
             return new WebhookProcessingResult(false, null, null, null, false, null, "Invalid webhook signature header.");

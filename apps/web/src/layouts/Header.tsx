@@ -137,6 +137,13 @@ export const Header: React.FC = () => {
             {/* User status or Log In Button */}
             {isAuthenticated && user ? (
               <div className="flex items-center gap-2">
+                <Link
+                  to="/learning"
+                  id="header-my-learning-btn"
+                  className="px-3.5 py-1.5 text-xs font-bold text-brand-600 hover:text-brand-700 bg-brand-50 hover:bg-brand-100 border border-brand-200 rounded-full transition-colors cursor-pointer select-none"
+                >
+                  My Learning
+                </Link>
                 <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-50 border border-slate-200 shadow-sm">
                   <div className="w-6 h-6 rounded-full bg-brand-600 text-white flex items-center justify-center text-[10px] font-bold">
                     {user.firstName ? user.firstName.charAt(0).toUpperCase() : 'U'}
@@ -277,6 +284,14 @@ export const Header: React.FC = () => {
                       <div className="text-[10px] text-slate-500 truncate">{user.email}</div>
                     </div>
                   </div>
+                  <Link
+                    to="/learning"
+                    id="mobile-header-my-learning-btn"
+                    onClick={() => setMobileMenuOpen(false)}
+                    className="w-full py-2.5 text-xs font-bold text-brand-600 border border-brand-200 rounded-full bg-brand-50 hover:bg-brand-100 transition-colors text-center cursor-pointer shadow-sm active:scale-95"
+                  >
+                    My Learning Dashboard
+                  </Link>
                   <button
                     type="button"
                     id="mobile-header-logout-btn"
