@@ -8,6 +8,10 @@ export const PROGRAM_ASSETS_MAP: Record<string, string> = {
   'course-datascience': courseDatascienceImg,
   'course-uiux': courseUiuxImg,
   'course-marketing': courseMarketingImg,
+  'courseFullstackImg': courseFullstackImg,
+  'courseDatascienceImg': courseDatascienceImg,
+  'courseUiuxImg': courseUiuxImg,
+  'courseMarketingImg': courseMarketingImg,
 }
 
 export function resolveProgramImage(assetKeyOrUrl?: string | null): string {
@@ -23,3 +27,5 @@ export function resolveProgramImage(assetKeyOrUrl?: string | null): string {
   }
   return courseFullstackImg
 }
+
+export const resolveCourseImage = resolveProgramImage

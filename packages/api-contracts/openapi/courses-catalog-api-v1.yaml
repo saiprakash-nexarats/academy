@@ -1,0 +1,358 @@
+openapi: 3.1.0
+info:
+  title: Nexarats Academy Modular Course Catalog & Syllabus Engine API
+  version: 1.0.0
+  description: >
+    Production-grade REST API specification for the modular course catalog,
+    hierarchical curriculum modules, publication versioning, and public syllabus previews.
+servers:
+  - url: http://localhost:8085/api/v1
+    description: Local Spring Boot Development Server
+paths:
+  /academic/courses:
+    get:
+      summary: List published modular courses with filtering and pagination
+      tags:
+        - Courses
+      parameters:
+        - name: category
+          in: query
+          schema:
+            type: string
+          description: Category filter (e.g. Web & Full Stack)
+        - name: level
+          in: query
+          schema:
+            type: string
+          description: Skill level (Beginner, Intermediate, Advanced, All Levels)
+        - name: featured
+          in: query
+          schema:
+            type: boolean
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 0
+        - name: size
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: sort
+          in: query
+          schema:
+            type: string
+            default: default
+      responses:
+        '200':
+          description: Successfully retrieved courses
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedCoursesResponse'
+        '400':
+          description: Invalid request parameters
+
+  /academic/courses/{slug}:
+    get:
+      summary: Get course detail by slug or UUID
+      tags:
+        - Courses
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Course details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CourseDetailDto'
+        '404':
+          description: Course not found
+
+  /academic/courses/{slug}/syllabus:
+    get:
+      summary: Get published hierarchical syllabus for a course
+      tags:
+        - Curriculum
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Published syllabus with ordered modules and lesson summaries
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurriculumSyllabusDto'
+        '404':
+          description: Syllabus or course not found
+
+  /academic/courses/{slug}/lessons/{lessonId}/preview:
+    get:
+      summary: Get public preview content for an authorized previewable lesson
+      tags:
+        - Lessons
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: lessonId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Previewable lesson content
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LessonPreviewDto'
+        '403':
+          description: Lesson is locked and requires enrollment
+        '404':
+          description: Lesson not found
+
+  /academic/courses/{courseId}/versions/{versionNumber}/publish:
+    post:
+      summary: Atomically publish an approved curriculum version
+      tags:
+        - Version Management
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: courseId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: versionNumber
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: Version published successfully
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    CourseInstructorDto:
+      type: object
+      properties:
+        name:
+          type: string
+        company:
+          type: string
+      required:
+        - name
+        - company
+
+    CourseSummaryDto:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+        title:
+          type: string
+        category:
+          type: string
+        level:
+          type: string
+        durationWeeks:
+          type: integer
+        lessonsCount:
+          type: integer
+        projectsCount:
+          type: integer
+        rating:
+          type: number
+        reviewsCount:
+          type: integer
+        enrolledStudents:
+          type: string
+        instructor:
+          $ref: '#/components/schemas/CourseInstructorDto'
+        imageAssetKey:
+          type: string
+        badge:
+          type: string
+        shortDescription:
+          type: string
+        techStack:
+          type: array
+          items:
+            type: string
+        isFeatured:
+          type: boolean
+        displayOrder:
+          type: integer
+
+    CourseDetailDto:
+      allOf:
+        - $ref: '#/components/schemas/CourseSummaryDto'
+        - type: object
+          properties:
+            detailedDescription:
+              type: string
+            learningOutcomes:
+              type: array
+              items:
+                type: string
+            prerequisites:
+              type: string
+            publishedVersionLabel:
+              type: string
+            modulesCount:
+              type: integer
+            relatedPrograms:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  slug:
+                    type: string
+                  title:
+                    type: string
+            publishedAt:
+              type: string
+              format: date-time
+
+    LessonSummaryDto:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        summary:
+          type: string
+        lessonType:
+          type: string
+        durationMinutes:
+          type: integer
+        isPreviewable:
+          type: boolean
+        displayOrder:
+          type: integer
+        isLocked:
+          type: boolean
+
+    CurriculumModuleDto:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        number:
+          type: string
+        title:
+          type: string
+        duration:
+          type: string
+        displayOrder:
+          type: integer
+        lessonsCount:
+          type: integer
+        topics:
+          type: array
+          items:
+            type: string
+        lessons:
+          type: array
+          items:
+            $ref: '#/components/schemas/LessonSummaryDto'
+
+    CurriculumSyllabusDto:
+      type: object
+      properties:
+        courseId:
+          type: string
+          format: uuid
+        courseSlug:
+          type: string
+        courseTitle:
+          type: string
+        versionLabel:
+          type: string
+        publishedAt:
+          type: string
+          format: date-time
+        totalModules:
+          type: integer
+        totalLessons:
+          type: integer
+        modules:
+          type: array
+          items:
+            $ref: '#/components/schemas/CurriculumModuleDto'
+
+    LessonPreviewDto:
+      type: object
+      properties:
+        lessonId:
+          type: string
+          format: uuid
+        courseSlug:
+          type: string
+        moduleNumber:
+          type: string
+        title:
+          type: string
+        summary:
+          type: string
+        lessonType:
+          type: string
+        durationMinutes:
+          type: integer
+        previewContent:
+          type: string
+
+    PaginatedCoursesResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CourseSummaryDto'
+        total:
+          type: integer
+        page:
+          type: integer
+        size:
+          type: integer
+        totalPages:
+          type: integer

@@ -25,12 +25,14 @@ public interface ProgramRepository extends JpaRepository<Program, UUID> {
 
     @Query("SELECT p FROM Program p JOIN p.category c " +
            "WHERE p.status = 'PUBLISHED' " +
+           "AND ((:tenantId IS NULL AND p.tenantId IS NULL) OR (:tenantId IS NOT NULL AND (p.tenantId IS NULL OR p.tenantId = :tenantId))) " +
            "AND (:category IS NULL OR :category = '' OR :category = 'all' OR LOWER(c.slug) = LOWER(:category) OR LOWER(c.name) = LOWER(:category)) " +
            "AND (:duration IS NULL OR p.durationValue = :duration) " +
            "AND (:featured IS NULL OR p.isFeatured = :featured) " +
            "AND (:search IS NULL OR :search = '' OR LOWER(p.title) LIKE LOWER(CONCAT('%', :search, '%')) OR LOWER(p.shortDescription) LIKE LOWER(CONCAT('%', :search, '%')) OR LOWER(p.detailedDescription) LIKE LOWER(CONCAT('%', :search, '%'))) " +
            "ORDER BY p.displayOrder ASC")
     List<Program> findPublishedWithFilters(
+            @Param("tenantId") UUID tenantId,
             @Param("category") String category,
             @Param("duration") Integer duration,
             @Param("featured") Boolean featured,
@@ -39,11 +41,13 @@ public interface ProgramRepository extends JpaRepository<Program, UUID> {
 
     @Query("SELECT p FROM Program p JOIN p.category c " +
            "WHERE p.status = 'PUBLISHED' " +
+           "AND ((:tenantId IS NULL AND p.tenantId IS NULL) OR (:tenantId IS NOT NULL AND (p.tenantId IS NULL OR p.tenantId = :tenantId))) " +
            "AND (:category IS NULL OR :category = '' OR :category = 'all' OR LOWER(c.slug) = LOWER(:category) OR LOWER(c.name) = LOWER(:category)) " +
            "AND (:duration IS NULL OR p.durationValue = :duration) " +
            "AND (:featured IS NULL OR p.isFeatured = :featured) " +
            "AND (:search IS NULL OR :search = '' OR LOWER(p.title) LIKE LOWER(CONCAT('%', :search, '%')) OR LOWER(p.shortDescription) LIKE LOWER(CONCAT('%', :search, '%')) OR LOWER(p.detailedDescription) LIKE LOWER(CONCAT('%', :search, '%')))")
     Page<Program> findPublishedWithFiltersPaged(
+            @Param("tenantId") UUID tenantId,
             @Param("category") String category,
             @Param("duration") Integer duration,
             @Param("featured") Boolean featured,

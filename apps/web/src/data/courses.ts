@@ -1,3 +1,10 @@
+/**
+ * NON-AUTHORITATIVE MIGRATION FIXTURE
+ * Retained temporarily as a seed/migration reference fixture.
+ * The authoritative source for courses and curricula is PostgreSQL (Flyway V8)
+ * and the Core Backend REST API (/api/v1/academic/courses).
+ */
+
 import courseFullstackImg from '@/assets/course-fullstack.jpg'
 import courseDatascienceImg from '@/assets/course-datascience.jpg'
 import courseUiuxImg from '@/assets/course-uiux.jpg'

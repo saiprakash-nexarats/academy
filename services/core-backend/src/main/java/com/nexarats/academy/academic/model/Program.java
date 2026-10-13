@@ -3,6 +3,8 @@ package com.nexarats.academy.academic.model;
 import jakarta.persistence.*;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -78,7 +80,18 @@ public class Program {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt = Instant.now();
 
+    @ManyToMany(mappedBy = "programs")
+    private List<Course> courses = new ArrayList<>();
+
     public Program() {
+    }
+
+    public List<Course> getCourses() {
+        return courses;
+    }
+
+    public void setCourses(List<Course> courses) {
+        this.courses = courses;
     }
 
     @PrePersist

@@ -277,4 +277,80 @@ class ProgramCatalogIntegrationTests {
             programRepository.delete(draftProgram);
         }
     }
+
+    @Autowired
+    private com.nexarats.academy.tenant.TenantRepository tenantRepository;
+
+    @Test
+    @DisplayName("Task 0.A Tenant Isolation: Cross-tenant programs are strictly isolated and platform-wide queries exclude private tenant records")
+    void testCrossTenantProgramIsolationAndScoping() {
+        ProgramCategory category = categoryRepository.findBySlug("software-engineering").orElseThrow();
+        com.nexarats.academy.tenant.Tenant tA = tenantRepository.save(new com.nexarats.academy.tenant.Tenant(
+                "corp-a-" + UUID.randomUUID().toString().substring(0, 6), "Alpha Corp"
+        ));
+        com.nexarats.academy.tenant.Tenant tB = tenantRepository.save(new com.nexarats.academy.tenant.Tenant(
+                "corp-b-" + UUID.randomUUID().toString().substring(0, 6), "Beta Corp"
+        ));
+        UUID tenantA = tA.getId();
+        UUID tenantB = tB.getId();
+
+        String tenantSlug = "tenant-a-private-" + UUID.randomUUID().toString().substring(0, 6);
+        Program tenantProgram = new Program();
+        tenantProgram.setSlug(tenantSlug);
+        tenantProgram.setTitle("Tenant A Private Program");
+        tenantProgram.setShortDescription("Private curriculum for Tenant A only");
+        tenantProgram.setImageAssetKey("course-fullstack");
+        tenantProgram.setDurationValue(4);
+        tenantProgram.setDurationUnit("MONTHS");
+        tenantProgram.setDurationLabel("4 Months");
+        tenantProgram.setLevel("Intermediate");
+        tenantProgram.setRating(BigDecimal.valueOf(4.90));
+        tenantProgram.setStatus("PUBLISHED");
+        tenantProgram.setCategory(category);
+        tenantProgram.setTenantId(tenantA);
+        programRepository.save(tenantProgram);
+
+        try {
+            // 1. Unauthenticated / Global user without tenant context
+            com.nexarats.academy.common.tenant.TenantContext.clear();
+            PaginatedResponseDto<ProgramSummaryDto> globalList = catalogService.getPublishedPrograms(
+                    null, null, null, null, 0, 50, "default"
+            );
+            boolean globalContainsPrivate = globalList.items().stream().anyMatch(p -> p.slug().equals(tenantSlug));
+            assertThat(globalContainsPrivate).as("Global catalog must exclude tenant-owned program").isFalse();
+
+            // Direct slug lookup by unauthenticated global user returns 404
+            assertThatThrownBy(() -> catalogService.getProgramBySlug(tenantSlug))
+                    .isInstanceOf(ResponseStatusException.class)
+                    .hasMessageContaining("404 NOT_FOUND");
+
+            // 2. Unrelated Tenant B context
+            com.nexarats.academy.common.tenant.TenantContext.setTenantId(tenantB);
+            PaginatedResponseDto<ProgramSummaryDto> tenantBList = catalogService.getPublishedPrograms(
+                    null, null, null, null, 0, 50, "default"
+            );
+            boolean tenantBContainsPrivate = tenantBList.items().stream().anyMatch(p -> p.slug().equals(tenantSlug));
+            assertThat(tenantBContainsPrivate).as("Tenant B must not see Tenant A private program").isFalse();
+
+            assertThatThrownBy(() -> catalogService.getProgramBySlug(tenantSlug))
+                    .isInstanceOf(ResponseStatusException.class)
+                    .hasMessageContaining("404 NOT_FOUND");
+
+            // 3. Authorized Tenant A context
+            com.nexarats.academy.common.tenant.TenantContext.setTenantId(tenantA);
+            PaginatedResponseDto<ProgramSummaryDto> tenantAList = catalogService.getPublishedPrograms(
+                    null, null, null, null, 0, 50, "default"
+            );
+            boolean tenantAContainsPrivate = tenantAList.items().stream().anyMatch(p -> p.slug().equals(tenantSlug));
+            assertThat(tenantAContainsPrivate).as("Tenant A can access its own private program").isTrue();
+
+            ProgramDetailDto detail = catalogService.getProgramBySlug(tenantSlug);
+            assertThat(detail.title()).isEqualTo("Tenant A Private Program");
+        } finally {
+            com.nexarats.academy.common.tenant.TenantContext.clear();
+            programRepository.delete(tenantProgram);
+            tenantRepository.delete(tA);
+            tenantRepository.delete(tB);
+        }
+    }
 }

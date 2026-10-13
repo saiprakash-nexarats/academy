@@ -81,6 +81,9 @@ public class ProgramCatalogService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Search query exceeds maximum length of 100 characters");
         }
 
+        UUID tenantId = com.nexarats.academy.common.tenant.TenantContext.getTenantId();
+        String tenantKey = tenantId != null ? tenantId.toString() : "global";
+
         // Deterministic Sort Configuration
         Sort sort = Sort.by(Sort.Direction.ASC, "displayOrder");
         if ("rating".equalsIgnoreCase(sortBy)) {
@@ -89,7 +92,8 @@ public class ProgramCatalogService {
             sort = Sort.by(Sort.Direction.ASC, "title");
         }
 
-        String cacheKey = String.format("cat=%s:dur=%s:feat=%s:q=%s:p=%d:s=%d:sort=%s",
+        String cacheKey = String.format("t=%s:cat=%s:dur=%s:feat=%s:q=%s:p=%d:s=%d:sort=%s",
+                tenantKey,
                 sanitizedCategory != null ? sanitizedCategory : "all",
                 duration != null ? duration : "any",
                 featured != null ? featured : "all",
@@ -106,6 +110,7 @@ public class ProgramCatalogService {
 
         Pageable pageable = PageRequest.of(page, size, sort);
         Page<Program> programPage = programRepository.findPublishedWithFiltersPaged(
+                tenantId,
                 sanitizedCategory,
                 duration,
                 featured,
@@ -133,8 +138,12 @@ public class ProgramCatalogService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Program identifier cannot be empty");
         }
 
+        UUID tenantId = com.nexarats.academy.common.tenant.TenantContext.getTenantId();
+        String tenantKey = tenantId != null ? tenantId.toString() : "global";
+
         String sanitized = identifier.trim().toLowerCase();
-        Optional<ProgramDetailDto> cached = cacheService.getCachedProgramDetail(sanitized);
+        String detailCacheKey = (tenantId != null) ? ("t=" + tenantKey + ":" + sanitized) : sanitized;
+        Optional<ProgramDetailDto> cached = cacheService.getCachedProgramDetail(detailCacheKey);
         if (cached.isPresent()) {
             return cached.get();
         }
@@ -157,8 +166,13 @@ public class ProgramCatalogService {
                 new ResponseStatusException(HttpStatus.NOT_FOUND, "Published program not found with identifier: " + identifier)
         );
 
+        // Enforce tenant isolation: private tenant program cannot be viewed without matching tenant context
+        if (program.getTenantId() != null && (tenantId == null || !tenantId.equals(program.getTenantId()))) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Published program not found with identifier: " + identifier);
+        }
+
         ProgramDetailDto detailDto = mapToDetailDto(program);
-        cacheService.cacheProgramDetail(program.getSlug(), detailDto);
+        cacheService.cacheProgramDetail(detailCacheKey, detailDto);
         return detailDto;
     }
 

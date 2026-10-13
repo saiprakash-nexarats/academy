@@ -108,6 +108,22 @@ public class SecurityConfig {
                                 "/api/v1/program-categories/**"
                         ).permitAll()
 
+                        // Public Modular Course Catalog & Syllabus Read Endpoints
+                        .requestMatchers(
+                                org.springframework.http.HttpMethod.GET,
+                                "/api/v1/academic/courses",
+                                "/api/v1/academic/courses/**",
+                                "/api/v1/courses",
+                                "/api/v1/courses/**"
+                        ).permitAll()
+
+                        // Course Publishing & Version Management (Restricted to Authorized Admins)
+                        .requestMatchers(
+                                org.springframework.http.HttpMethod.POST,
+                                "/api/v1/academic/courses/*/versions/*/publish",
+                                "/api/v1/courses/*/versions/*/publish"
+                        ).authenticated()
+
                         // Authenticated Operations
                         .requestMatchers(
                                 "/api/v1/auth/me",
