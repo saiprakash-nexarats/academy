@@ -1,3 +1,10 @@
+/**
+ * NON-AUTHORITATIVE LEGACY FIXTURE
+ * Note: As of Phase 3, PostgreSQL (Flyway V7) and Spring Boot REST APIs
+ * (/api/v1/academic/programs) serve as the single source of truth for the
+ * Nexarats Academy program catalog. This file is preserved strictly as a
+ * migration fixture and test reference. Do not add production fallbacks to this file.
+ */
 import type { ProgramItem } from '@/types'
 import courseFullstackImg from '@/assets/course-fullstack.jpg'
 import courseDatascienceImg from '@/assets/course-datascience.jpg'

@@ -3,8 +3,11 @@ import { useNavigate } from 'react-router-dom'
 import { ArrowRight } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { ProgramCard } from '@/sections/programs/ProgramCard'
+import { ProgramCardSkeleton } from '@/sections/programs/ProgramCardSkeleton'
 import { PlatformCard } from '@/sections/experience/PlatformCard'
-import { POPULAR_PROGRAMS, WHY_CHOOSE_LEFT, WHY_CHOOSE_RIGHT } from '@/data'
+import { WHY_CHOOSE_LEFT, WHY_CHOOSE_RIGHT } from '@/data'
+import { usePrograms } from '@/lib/catalogApi'
+import { resolveProgramImage } from '@/lib/programAssets'
 import { Button } from '@/components/ui/Button'
 import { useModals } from '@/context'
 import { cn } from '@/lib/utils'
@@ -22,6 +25,8 @@ export const UnifiedMiddleSection: React.FC<UnifiedMiddleSectionProps> = ({
 }) => {
   const navigate = useNavigate()
   const { openDemoModal } = useModals()
+  const { data: featuredData, isLoading: isFeaturedLoading } = usePrograms({ featured: true })
+  const programs = featuredData?.items || []
 
   const handleExplorePrograms = onExplorePrograms || (() => navigate('/programs'))
   const handleOpenPlatform = onOpenEnroll || (() => openDemoModal())
@@ -63,18 +68,36 @@ export const UnifiedMiddleSection: React.FC<UnifiedMiddleSectionProps> = ({
 
               {/* 4 Program Cards in Grid */}
               <div className="flex-1 w-full grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-3.5">
-                {POPULAR_PROGRAMS.map((program, index) => (
-                  <motion.div
-                    key={program.id}
-                    initial={{ opacity: 0, y: 15 }}
-                    whileInView={{ opacity: 1, y: 0 }}
-                    viewport={{ once: true }}
-                    transition={{ duration: 0.35, delay: index * 0.06 }}
-                    className="h-full"
-                  >
-                    <ProgramCard {...program} />
-                  </motion.div>
-                ))}
+                {isFeaturedLoading && (
+                  <>
+                    {[0, 1, 2, 3].map((idx) => (
+                      <ProgramCardSkeleton key={idx} />
+                    ))}
+                  </>
+                )}
+                {!isFeaturedLoading &&
+                  programs.map((program, index) => (
+                    <motion.div
+                      key={program.id}
+                      initial={{ opacity: 0, y: 15 }}
+                      whileInView={{ opacity: 1, y: 0 }}
+                      viewport={{ once: true }}
+                      transition={{ duration: 0.35, delay: index * 0.06 }}
+                      className="h-full"
+                    >
+                      <ProgramCard
+                        id={program.id}
+                        slug={program.slug}
+                        title={program.title}
+                        description={program.shortDescription}
+                        image={resolveProgramImage(program.imageAssetKey)}
+                        duration={program.durationLabel}
+                        level={program.level}
+                        badge={program.badge ?? undefined}
+                        category={program.categoryName}
+                      />
+                    </motion.div>
+                  ))}
               </div>
             </div>
           </div>

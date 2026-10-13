@@ -96,6 +96,18 @@ public class SecurityConfig {
                                 "/api/v1/auth/bootstrap-admin"
                         ).permitAll()
 
+                        // Public Academic & Program Catalog Endpoints
+                        .requestMatchers(
+                                "/api/v1/academic/programs",
+                                "/api/v1/academic/programs/**",
+                                "/api/v1/academic/program-categories",
+                                "/api/v1/academic/program-categories/**",
+                                "/api/v1/programs",
+                                "/api/v1/programs/**",
+                                "/api/v1/program-categories",
+                                "/api/v1/program-categories/**"
+                        ).permitAll()
+
                         // Authenticated Operations
                         .requestMatchers(
                                 "/api/v1/auth/me",

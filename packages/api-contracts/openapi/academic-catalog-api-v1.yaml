@@ -1,0 +1,359 @@
+openapi: 3.1.0
+info:
+  title: Nexarats Academy Public Academic Program Catalog API
+  version: 1.0.0
+  description: >
+    Production-grade dynamic academic catalog API for published programs,
+    category filters, duration filters, keyword search, and Redis caching.
+servers:
+  - url: http://localhost:8085/api/v1
+    description: Local Core Backend Dev Server
+paths:
+  /academic/programs:
+    get:
+      summary: List published catalog programs
+      description: >
+        Returns a paginated list of published programs with optional filtering by
+        category slug/name, duration in months, featured status, and search query.
+      parameters:
+        - name: category
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Category slug or name (e.g. software-engineering, all)
+        - name: duration
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Duration value in months (e.g. 4, 5, 6)
+        - name: featured
+          in: query
+          required: false
+          schema:
+            type: boolean
+          description: Filter for featured/popular programs displayed on the homepage
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 100
+          description: Case-insensitive search keyword across title and short description
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 100
+          description: Alias for search keyword
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+            minimum: 0
+          description: Zero-based page index
+        - name: size
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+          description: Maximum items per page
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [default, rating, title]
+            default: default
+          description: Sort ordering
+      responses:
+        '200':
+          description: Successfully retrieved published program list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedProgramsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestProblem'
+
+  /academic/programs/{slug}:
+    get:
+      summary: Get program details by slug or identifier
+      description: >
+        Retrieves the complete details for a published program by its unique public slug.
+        Cached in Redis with safe fallback to PostgreSQL.
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Unique program slug (e.g. full-stack, data-science, ui-ux)
+      responses:
+        '200':
+          description: Successfully retrieved program details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProgramDetail'
+        '404':
+          $ref: '#/components/responses/NotFoundProblem'
+
+  /academic/program-categories:
+    get:
+      summary: List active program categories
+      description: Returns all active program categories in display order.
+      responses:
+        '200':
+          description: Successfully retrieved category list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProgramCategory'
+
+components:
+  schemas:
+    ProgramCategory:
+      type: object
+      required:
+        - id
+        - slug
+        - name
+        - displayOrder
+      properties:
+        id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+          example: software-engineering
+        name:
+          type: string
+          example: Software Engineering
+        description:
+          type: string
+          nullable: true
+          example: Modern web, backend, and full stack systems engineering
+        displayOrder:
+          type: integer
+          example: 1
+
+    ProgramSummary:
+      type: object
+      required:
+        - id
+        - slug
+        - title
+        - shortDescription
+        - imageAssetKey
+        - durationValue
+        - durationUnit
+        - durationLabel
+        - level
+        - rating
+        - categorySlug
+        - categoryName
+        - isFeatured
+        - displayOrder
+      properties:
+        id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+          example: full-stack
+        title:
+          type: string
+          example: Full Stack Development
+        shortDescription:
+          type: string
+          example: Master modern web technologies and build real-world applications.
+        imageAssetKey:
+          type: string
+          example: course-fullstack
+        durationValue:
+          type: integer
+          example: 6
+        durationUnit:
+          type: string
+          example: MONTHS
+        durationLabel:
+          type: string
+          example: 6 Months
+        level:
+          type: string
+          example: Beginner to Advanced
+        badge:
+          type: string
+          nullable: true
+          example: Bestseller
+        rating:
+          type: number
+          format: double
+          example: 4.90
+        categorySlug:
+          type: string
+          example: software-engineering
+        categoryName:
+          type: string
+          example: Software Engineering
+        isFeatured:
+          type: boolean
+          example: true
+        displayOrder:
+          type: integer
+          example: 1
+
+    ProgramDetail:
+      type: object
+      required:
+        - id
+        - slug
+        - title
+        - shortDescription
+        - imageAssetKey
+        - durationValue
+        - durationUnit
+        - durationLabel
+        - level
+        - rating
+        - categorySlug
+        - categoryName
+        - isFeatured
+        - displayOrder
+      properties:
+        id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+          example: full-stack
+        title:
+          type: string
+          example: Full Stack Development
+        shortDescription:
+          type: string
+          example: Master modern web technologies and build real-world applications.
+        detailedDescription:
+          type: string
+          nullable: true
+        imageAssetKey:
+          type: string
+          example: course-fullstack
+        durationValue:
+          type: integer
+          example: 6
+        durationUnit:
+          type: string
+          example: MONTHS
+        durationLabel:
+          type: string
+          example: 6 Months
+        level:
+          type: string
+          example: Beginner to Advanced
+        badge:
+          type: string
+          nullable: true
+          example: Bestseller
+        rating:
+          type: number
+          format: double
+          example: 4.90
+        categorySlug:
+          type: string
+          example: software-engineering
+        categoryName:
+          type: string
+          example: Software Engineering
+        curriculumOverview:
+          type: string
+          nullable: true
+        careerOutcomes:
+          type: string
+          nullable: true
+        isFeatured:
+          type: boolean
+          example: true
+        displayOrder:
+          type: integer
+          example: 1
+        publishedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    PaginatedProgramsResponse:
+      type: object
+      required:
+        - items
+        - total
+        - page
+        - size
+        - totalPages
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProgramSummary'
+        total:
+          type: integer
+          format: int64
+          example: 8
+        page:
+          type: integer
+          example: 0
+        size:
+          type: integer
+          example: 20
+        totalPages:
+          type: integer
+          example: 1
+
+    ProblemDetail:
+      type: object
+      required:
+        - title
+        - status
+        - detail
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+        correlationId:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+
+  responses:
+    BadRequestProblem:
+      description: Invalid query parameters or input
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+
+    NotFoundProblem:
+      description: Program not found or unpublished
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'

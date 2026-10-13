@@ -6,6 +6,7 @@ import { X, CheckCircle2, GraduationCap, ArrowRight } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Button } from '@/components/ui/Button'
 import { POPULAR_PROGRAMS } from '@/data'
+import { usePrograms } from '@/lib/catalogApi'
 
 const enrollSchema = z.object({
   fullName: z.string().min(2, 'Name must be at least 2 characters'),
@@ -29,6 +30,12 @@ export const EnrollModal: React.FC<EnrollModalProps> = ({
   defaultProgram,
 }) => {
   const [isSubmitted, setIsSubmitted] = useState(false)
+  const { data: catalogData } = usePrograms()
+
+  const availablePrograms =
+    catalogData?.items && catalogData.items.length > 0
+      ? catalogData.items.map((p) => ({ id: p.slug, title: p.title, duration: p.durationLabel }))
+      : POPULAR_PROGRAMS
 
   const {
     register,
@@ -179,7 +186,7 @@ export const EnrollModal: React.FC<EnrollModalProps> = ({
                     {...register('program')}
                     className="w-full px-3.5 py-2.5 text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all"
                   >
-                    {POPULAR_PROGRAMS.map((p) => (
+                    {availablePrograms.map((p) => (
                       <option key={p.id} value={p.id}>
                         {p.title} ({p.duration})
                       </option>

@@ -1,5 +1,7 @@
 export * from './HomePage'
 export * from './ProgramsPage'
+export * from './ProgramDetailPage'
+export * from './ProgramDetailView'
 export * from './CoursesPage'
 export * from './MentorsPage'
 export * from './SuccessStoriesPage'

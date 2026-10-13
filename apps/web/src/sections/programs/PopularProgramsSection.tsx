@@ -1,9 +1,11 @@
 import React from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowRight } from 'lucide-react'
+import { ArrowRight, AlertCircle, RefreshCw } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { ProgramCard } from './ProgramCard'
-import { POPULAR_PROGRAMS } from '@/data'
+import { ProgramCardSkeleton } from './ProgramCardSkeleton'
+import { usePrograms } from '@/lib/catalogApi'
+import { resolveProgramImage } from '@/lib/programAssets'
 import { cn } from '@/lib/utils'
 
 interface PopularProgramsSectionProps {
@@ -13,6 +15,10 @@ interface PopularProgramsSectionProps {
 export const PopularProgramsSection: React.FC<PopularProgramsSectionProps> = ({
   className,
 }) => {
+  const { data, isLoading, isError, refetch } = usePrograms({ featured: true })
+
+  const programs = data?.items || []
+
   return (
     <section className={cn('py-1 sm:py-2', className)}>
       <div className="flex flex-col xl:flex-row gap-6 xl:gap-8 items-start">
@@ -50,18 +56,59 @@ export const PopularProgramsSection: React.FC<PopularProgramsSectionProps> = ({
 
         {/* Right 4 Cards Grid */}
         <div className="flex-1 w-full grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-4.5">
-          {POPULAR_PROGRAMS.map((program, index) => (
-            <motion.div
-              key={program.id}
-              initial={{ opacity: 0, y: 15 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.4, delay: index * 0.08 }}
-              className="h-full"
-            >
-              <ProgramCard {...program} />
-            </motion.div>
-          ))}
+          {isLoading && (
+            <>
+              {[0, 1, 2, 3].map((idx) => (
+                <ProgramCardSkeleton key={idx} />
+              ))}
+            </>
+          )}
+
+          {isError && (
+            <div className="col-span-full p-6 rounded-2xl bg-slate-50 border border-slate-200 text-center space-y-3">
+              <AlertCircle className="w-6 h-6 text-amber-500 mx-auto" />
+              <p className="text-xs text-slate-600">Unable to load featured programs at this moment.</p>
+              <button
+                type="button"
+                onClick={() => refetch()}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-brand-600 bg-brand-50 hover:bg-brand-100 transition-colors cursor-pointer"
+              >
+                <RefreshCw className="w-3 h-3" />
+                <span>Retry</span>
+              </button>
+            </div>
+          )}
+
+          {!isLoading && !isError && programs.length === 0 && (
+            <div className="col-span-full p-6 rounded-2xl bg-slate-50 border border-slate-200 text-center">
+              <p className="text-xs text-slate-500">No featured programs currently published.</p>
+            </div>
+          )}
+
+          {!isLoading &&
+            !isError &&
+            programs.map((program, index) => (
+              <motion.div
+                key={program.id}
+                initial={{ opacity: 0, y: 15 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.4, delay: index * 0.08 }}
+                className="h-full"
+              >
+                <ProgramCard
+                  id={program.id}
+                  slug={program.slug}
+                  title={program.title}
+                  description={program.shortDescription}
+                  image={resolveProgramImage(program.imageAssetKey)}
+                  duration={program.durationLabel}
+                  level={program.level}
+                  badge={program.badge ?? undefined}
+                  category={program.categoryName}
+                />
+              </motion.div>
+            ))}
         </div>
       </div>
     </section>

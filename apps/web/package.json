@@ -12,6 +12,7 @@
   "dependencies": {
     "@hookform/resolvers": "^5.9.1",
     "@nexarats/api-contracts": "workspace:*",
+    "@tanstack/react-query": "^5.104.2",
     "clsx": "^2.1.1",
     "framer-motion": "^14.0.0",
     "lucide-react": "^1.53.0",

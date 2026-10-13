@@ -1,4 +1,5 @@
 import React from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Clock, BarChart, ArrowRight } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { useModals } from '@/context'
@@ -6,18 +7,21 @@ import { cn } from '@/lib/utils'
 
 export interface ProgramCardProps {
   id: string
+  slug?: string
   title: string
   description: string
   image: string
   duration: string
   level: string
   badge?: string
+  category?: string
   onEnroll?: (id: string) => void
   className?: string
 }
 
 export const ProgramCard: React.FC<ProgramCardProps> = ({
   id,
+  slug,
   title,
   description,
   image,
@@ -27,13 +31,25 @@ export const ProgramCard: React.FC<ProgramCardProps> = ({
   onEnroll,
   className,
 }) => {
+  const navigate = useNavigate()
   const { openEnrollModal } = useModals()
+
+  const programIdentifier = slug || id
 
   const handleCardClick = () => {
     if (onEnroll) {
-      onEnroll(id)
+      onEnroll(programIdentifier)
     } else {
-      openEnrollModal(id)
+      navigate(`/programs/${programIdentifier}`)
+    }
+  }
+
+  const handleActionClick = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (onEnroll) {
+      onEnroll(programIdentifier)
+    } else {
+      openEnrollModal(programIdentifier)
     }
   }
 
@@ -96,9 +112,14 @@ export const ProgramCard: React.FC<ProgramCardProps> = ({
           </div>
 
           {/* Action icon button */}
-          <div className="w-5 h-5 sm:w-6 sm:h-6 rounded-full border border-brand-200 text-brand-600 group-hover:bg-brand-600 group-hover:text-white flex items-center justify-center transition-colors shrink-0 ml-auto">
+          <button
+            type="button"
+            onClick={handleActionClick}
+            aria-label={`Enroll in ${title}`}
+            className="w-5 h-5 sm:w-6 sm:h-6 rounded-full border border-brand-200 text-brand-600 group-hover:bg-brand-600 group-hover:text-white flex items-center justify-center transition-colors shrink-0 ml-auto cursor-pointer"
+          >
             <ArrowRight className="w-3 h-3" />
-          </div>
+          </button>
         </div>
       </div>
     </motion.div>

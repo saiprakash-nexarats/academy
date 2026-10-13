@@ -11,6 +11,7 @@ export * from './hero/HeroFeatureRow'
 // Phase 2 Sections
 export * from './stats/StatsStrip'
 export * from './programs/ProgramCard'
+export * from './programs/ProgramCardSkeleton'
 export * from './programs/PopularProgramsSection'
 export * from './job-assurance/JobAssuranceSection'
 export * from './why-choose/WhyChooseSection'
