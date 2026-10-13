@@ -2,11 +2,11 @@ import React, { useState, useEffect } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { X, CheckCircle2, GraduationCap, ArrowRight } from 'lucide-react'
+import { X, CheckCircle2, GraduationCap, ArrowRight, AlertCircle, ShieldCheck } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Button } from '@/components/ui/Button'
 import { POPULAR_PROGRAMS } from '@/data'
-import { usePrograms } from '@/lib/catalogApi'
+import { usePrograms, submitApplication, type ApplicationSummaryDto } from '@/lib/catalogApi'
 
 const enrollSchema = z.object({
   fullName: z.string().min(2, 'Name must be at least 2 characters'),
@@ -14,6 +14,7 @@ const enrollSchema = z.object({
   phone: z.string().min(8, 'Please enter a valid phone number'),
   program: z.string().min(1, 'Please select a program'),
   experience: z.string().min(1, 'Please select your background'),
+  statementOfPurpose: z.string().optional(),
 })
 
 type EnrollFormData = z.infer<typeof enrollSchema>
@@ -29,7 +30,8 @@ export const EnrollModal: React.FC<EnrollModalProps> = ({
   onClose,
   defaultProgram,
 }) => {
-  const [isSubmitted, setIsSubmitted] = useState(false)
+  const [submittedApplication, setSubmittedApplication] = useState<ApplicationSummaryDto | null>(null)
+  const [apiError, setApiError] = useState<string | null>(null)
   const { data: catalogData } = usePrograms()
 
   const availablePrograms =
@@ -47,6 +49,7 @@ export const EnrollModal: React.FC<EnrollModalProps> = ({
     defaultValues: {
       program: defaultProgram || 'full-stack',
       experience: 'beginner',
+      statementOfPurpose: '',
     },
   })
 
@@ -58,19 +61,32 @@ export const EnrollModal: React.FC<EnrollModalProps> = ({
         phone: '',
         program: defaultProgram,
         experience: 'beginner',
+        statementOfPurpose: '',
       })
     }
   }, [defaultProgram, reset])
 
   const onSubmit = async (data: EnrollFormData) => {
-    // Simulate inquiry submission
-    await new Promise((resolve) => setTimeout(resolve, 800))
-    console.log('Enrollment Inquiry Submitted:', data)
-    setIsSubmitted(true)
+    setApiError(null)
+    try {
+      const response = await submitApplication({
+        fullName: data.fullName,
+        email: data.email,
+        phone: data.phone,
+        targetProgramOrCourse: data.program,
+        experienceLevel: data.experience,
+        statementOfPurpose: data.statementOfPurpose || undefined,
+      })
+      setSubmittedApplication(response)
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to submit application. Please check your details and try again.'
+      setApiError(msg)
+    }
   }
 
   const handleClose = () => {
-    setIsSubmitted(false)
+    setSubmittedApplication(null)
+    setApiError(null)
     reset()
     onClose()
   }
@@ -90,12 +106,13 @@ export const EnrollModal: React.FC<EnrollModalProps> = ({
           <button
             type="button"
             onClick={handleClose}
+            aria-label="Close modal"
             className="absolute top-5 right-5 p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors z-10 cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
 
-          {isSubmitted ? (
+          {submittedApplication ? (
             <div className="p-8 text-center space-y-4">
               <div className="w-16 h-16 rounded-2xl bg-emerald-50 text-emerald-600 border border-emerald-200 flex items-center justify-center mx-auto shadow-sm">
                 <CheckCircle2 className="w-8 h-8" />
@@ -103,11 +120,33 @@ export const EnrollModal: React.FC<EnrollModalProps> = ({
               <h3 className="font-heading font-extrabold text-2xl text-slate-900">
                 Application Received!
               </h3>
+
+              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-blue-50 border border-blue-200 text-brand-700 text-xs font-semibold">
+                <ShieldCheck className="w-4 h-4 text-brand-600" />
+                Ref: {submittedApplication.applicationNumber}
+              </div>
+
+              <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 text-left text-xs space-y-2 max-w-sm mx-auto">
+                <div className="flex justify-between text-slate-500">
+                  <span>Applicant:</span>
+                  <span className="font-semibold text-slate-900">{submittedApplication.fullName}</span>
+                </div>
+                <div className="flex justify-between text-slate-500">
+                  <span>Contact:</span>
+                  <span className="font-semibold text-slate-900">{submittedApplication.email}</span>
+                </div>
+                <div className="flex justify-between text-slate-500">
+                  <span>Status:</span>
+                  <span className="font-bold text-brand-600 uppercase tracking-wider">{submittedApplication.status}</span>
+                </div>
+              </div>
+
               <p className="text-sm text-slate-600 max-w-sm mx-auto leading-relaxed">
-                Thank you for applying to Nexarats Academy. Our academic advisor will contact you within 24 hours to schedule your counseling session.
+                Thank you for applying to Nexarats Academy. Our admissions committee is reviewing your application. You will receive an offer notification and seat reservation details shortly.
               </p>
+
               <div className="pt-2">
-                <Button variant="primary" onClick={handleClose} className="w-full">
+                <Button variant="primary" onClick={handleClose} className="w-full py-3">
                   Return to Academy
                 </Button>
               </div>
@@ -124,16 +163,24 @@ export const EnrollModal: React.FC<EnrollModalProps> = ({
                     Apply to Nexarats Academy
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Take the next step towards your tech career.
+                    Submit your application for verified cohort admission and seat reservation.
                   </p>
                 </div>
               </div>
+
+              {/* API Error Notification */}
+              {apiError && (
+                <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 flex items-start gap-3 text-rose-700 text-xs">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-500" />
+                  <p className="leading-relaxed">{apiError}</p>
+                </div>
+              )}
 
               {/* Form */}
               <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Full Name
+                    Full Name *
                   </label>
                   <input
                     type="text"
@@ -149,7 +196,7 @@ export const EnrollModal: React.FC<EnrollModalProps> = ({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">
-                      Email Address
+                      Email Address *
                     </label>
                     <input
                       type="email"
@@ -164,7 +211,7 @@ export const EnrollModal: React.FC<EnrollModalProps> = ({
 
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">
-                      Phone Number
+                      Phone Number *
                     </label>
                     <input
                       type="tel"
@@ -180,7 +227,7 @@ export const EnrollModal: React.FC<EnrollModalProps> = ({
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Select Program
+                    Target Program or Course *
                   </label>
                   <select
                     {...register('program')}
@@ -199,14 +246,14 @@ export const EnrollModal: React.FC<EnrollModalProps> = ({
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Current Experience Level
+                    Current Experience Level *
                   </label>
                   <select
                     {...register('experience')}
                     className="w-full px-3.5 py-2.5 text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all"
                   >
                     <option value="beginner">Complete Beginner (No coding experience)</option>
-                    <option value="intermediate">Self-taught / College student</option>
+                    <option value="intermediate">Self-taught / University student</option>
                     <option value="advanced">Working professional transitioning roles</option>
                   </select>
                 </div>
@@ -222,6 +269,10 @@ export const EnrollModal: React.FC<EnrollModalProps> = ({
                     Submit Application
                   </Button>
                 </div>
+
+                <p className="text-center text-[11px] text-slate-400">
+                  By submitting, you agree to Nexarats Academy admissions policies. No payment is required until formal admission offer issuance.
+                </p>
               </form>
             </div>
           )}

@@ -124,6 +124,27 @@ public class SecurityConfig {
                                 "/api/v1/courses/*/versions/*/publish"
                         ).authenticated()
 
+                        // Public Admissions & Intake Read Endpoints
+                        .requestMatchers(
+                                org.springframework.http.HttpMethod.GET,
+                                "/api/v1/admissions/cohorts",
+                                "/api/v1/admissions/cohorts/**",
+                                "/api/v1/cohorts",
+                                "/api/v1/cohorts/**"
+                        ).permitAll()
+
+                        // Public Application Submission (Guests and Authenticated Applicants)
+                        .requestMatchers(
+                                org.springframework.http.HttpMethod.POST,
+                                "/api/v1/admissions/applications"
+                        ).permitAll()
+
+                        // Public Payment Webhooks (Secured via HMAC Signatures)
+                        .requestMatchers(
+                                org.springframework.http.HttpMethod.POST,
+                                "/api/v1/payments/webhooks/**"
+                        ).permitAll()
+
                         // Authenticated Operations
                         .requestMatchers(
                                 "/api/v1/auth/me",

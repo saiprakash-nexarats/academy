@@ -15,6 +15,11 @@ import type {
   LessonPreviewDto,
   PaginatedCoursesResponse,
   CourseFilterParams,
+  SubmitApplicationRequest,
+  ApplicationSummaryDto,
+  CohortDto,
+  PaymentOrderDto,
+  InvoiceDto,
 } from '@nexarats/api-contracts'
 
 export type {
@@ -33,6 +38,11 @@ export type {
   LessonPreviewDto,
   PaginatedCoursesResponse,
   CourseFilterParams,
+  SubmitApplicationRequest,
+  ApplicationSummaryDto,
+  CohortDto,
+  PaymentOrderDto,
+  InvoiceDto,
 }
 
 export const programQueryKeys = {
@@ -261,6 +271,57 @@ export function useLessonPreview(slug?: string, lessonId?: string) {
     queryFn: () => fetchLessonPreview(slug!, lessonId!),
     enabled: Boolean(slug && lessonId),
     staleTime: 5 * 60 * 1000,
+    retry: 1,
+  })
+}
+
+export async function submitApplication(data: SubmitApplicationRequest): Promise<ApplicationSummaryDto> {
+  const response = await fetch('/api/v1/admissions/applications', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify(data),
+  })
+
+  if (!response.ok) {
+    let errorMessage = `Application submission failed (${response.status} ${response.statusText})`
+    try {
+      const err = await response.json()
+      if (err.detail) errorMessage = err.detail
+      else if (err.message) errorMessage = err.message
+      else if (err.title) errorMessage = err.title
+    } catch {
+      // ignore
+    }
+    throw new Error(errorMessage)
+  }
+
+  return response.json()
+}
+
+export async function fetchCohorts(params: { programId?: string; courseId?: string } = {}): Promise<CohortDto[]> {
+  const query = new URLSearchParams()
+  if (params.programId) query.set('programId', params.programId)
+  if (params.courseId) query.set('courseId', params.courseId)
+
+  const response = await fetch(`/api/v1/admissions/cohorts?${query.toString()}`, {
+    headers: { Accept: 'application/json' },
+  })
+
+  if (!response.ok) {
+    throw new Error(`Failed to load cohorts: ${response.status}`)
+  }
+
+  return response.json()
+}
+
+export function useCohorts(params: { programId?: string; courseId?: string } = {}) {
+  return useQuery({
+    queryKey: ['cohorts', params],
+    queryFn: () => fetchCohorts(params),
+    staleTime: 60 * 1000,
     retry: 1,
   })
 }

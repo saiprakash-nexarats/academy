@@ -1,0 +1,252 @@
+openapi: 3.1.0
+info:
+  title: Nexarats Academy Admissions, Enrollment & Financial Transactions API
+  version: 1.0.0
+  description: Canonical REST API contracts for student applications, admissions reviews, cohort capacity, payments, and billing.
+paths:
+  /api/v1/admissions/applications:
+    post:
+      summary: Submit student application
+      description: Allows public guest inquiries or authenticated learners to submit an admissions application.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitApplicationRequest'
+      responses:
+        '201':
+          description: Application submitted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApplicationSummaryDto'
+        '400':
+          description: Validation failure
+        '409':
+          description: Active application already exists for this program or course
+    get:
+      summary: List tenant applications (Admin / Staff)
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: programId
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Paginated applications list
+  /api/v1/admissions/applications/mine:
+    get:
+      summary: Get own applications for authenticated applicant
+      responses:
+        '200':
+          description: List of own applications
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ApplicationSummaryDto'
+  /api/v1/admissions/cohorts:
+    get:
+      summary: List cohorts and available seats
+      parameters:
+        - name: programId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: courseId
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: List of active cohorts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CohortDto'
+  /api/v1/payments/orders:
+    post:
+      summary: Create payment order with server-authoritative tuition pricing
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePaymentOrderRequest'
+      responses:
+        '200':
+          description: Payment order initialized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentOrderDto'
+  /api/v1/payments/orders/verify:
+    post:
+      summary: Verify provider signature and settle payment order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyPaymentRequest'
+      responses:
+        '200':
+          description: Payment verified and enrollment confirmed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentOrderDto'
+  /api/v1/billing/invoices/mine:
+    get:
+      summary: Get learner's invoices
+      responses:
+        '200':
+          description: List of invoices
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/InvoiceDto'
+components:
+  schemas:
+    SubmitApplicationRequest:
+      type: object
+      required:
+        - fullName
+        - email
+        - phone
+      properties:
+        fullName:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        targetProgramOrCourse:
+          type: string
+        experienceLevel:
+          type: string
+        statementOfPurpose:
+          type: string
+    ApplicationSummaryDto:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        applicationNumber:
+          type: string
+        fullName:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+        programId:
+          type: string
+          format: uuid
+        courseId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [DRAFT, SUBMITTED, UNDER_REVIEW, APPROVED, REJECTED, WITHDRAWN]
+        submittedAt:
+          type: string
+          format: date-time
+    CohortDto:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        cohortCode:
+          type: string
+        name:
+          type: string
+        capacity:
+          type: integer
+        availableSeats:
+          type: integer
+        status:
+          type: string
+    CreatePaymentOrderRequest:
+      type: object
+      properties:
+        applicationId:
+          type: string
+          format: uuid
+        offerId:
+          type: string
+          format: uuid
+        cohortId:
+          type: string
+          format: uuid
+        currency:
+          type: string
+        provider:
+          type: string
+          enum: [STRIPE, RAZORPAY, TEST_GATEWAY]
+        idempotencyKey:
+          type: string
+    VerifyPaymentRequest:
+      type: object
+      required:
+        - orderNumber
+        - signature
+      properties:
+        orderNumber:
+          type: string
+        providerPaymentId:
+          type: string
+        signature:
+          type: string
+    PaymentOrderDto:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        orderNumber:
+          type: string
+        amountCents:
+          type: integer
+        currency:
+          type: string
+        provider:
+          type: string
+        status:
+          type: string
+        paidAt:
+          type: string
+          format: date-time
+    InvoiceDto:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        invoiceNumber:
+          type: string
+        totalCents:
+          type: integer
+        currency:
+          type: string
+        status:
+          type: string
+        issuedAt:
+          type: string
+          format: date-time

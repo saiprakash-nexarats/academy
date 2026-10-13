@@ -1,3 +1,5 @@
 export * from './auth'
 export * from './catalog'
 export * from './courses'
+export * from './admissions'
+export * from './finance'
