@@ -45,7 +45,9 @@ The following capabilities were strictly excluded from Phase 4 per roadmap bound
 - **Approved Remote:** `https://github.com/surya7989/academy`
 - **Authorized Target Branch:** `master`
 - **Previous Remote Baseline SHA:** `983f24a2ef69c026ec1b1f67f78c85ebda744e8c`
+- **Phase 4 Implementation Commit SHA:** `85ff129d91fb784e60aaeafd16d85e03ef501328`
 - **Implementation Commit Title:** `feat(phase-4): implement course catalog, curriculum versioning and dynamic syllabus previews`
+- **Verified Remote Master SHA:** `85ff129d91fb784e60aaeafd16d85e03ef501328`
 - **Linear Push Policy:** Strictly fast-forward non-destructive push (`git push origin master`). No force push.
 
 ---
