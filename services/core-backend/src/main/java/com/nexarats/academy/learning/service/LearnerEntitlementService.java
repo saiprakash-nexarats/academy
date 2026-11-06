@@ -15,7 +15,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -37,17 +36,28 @@ public class LearnerEntitlementService {
 
     @Transactional(readOnly = true)
     public List<Enrollment> getActiveEnrollments(UUID learnerUserId) {
+        return getActiveEnrollments(learnerUserId, null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Enrollment> getActiveEnrollments(UUID learnerUserId, UUID tenantId) {
         if (learnerUserId == null) return List.of();
         List<Enrollment> all = enrollmentRepository.findByLearnerUserIdOrderByEnrolledAtDesc(learnerUserId);
         return all.stream()
                 .filter(e -> e.getStatus() == EnrollmentStatus.ENROLLED || e.getStatus() == EnrollmentStatus.ACTIVE)
+                .filter(e -> tenantId == null || e.getTenantId() == null || e.getTenantId().equals(tenantId))
                 .toList();
     }
 
     @Transactional(readOnly = true)
     public boolean hasCourseEntitlement(UUID learnerUserId, UUID courseId) {
+        return hasCourseEntitlement(learnerUserId, courseId, null);
+    }
+
+    @Transactional(readOnly = true)
+    public boolean hasCourseEntitlement(UUID learnerUserId, UUID courseId, UUID tenantId) {
         if (learnerUserId == null || courseId == null) return false;
-        List<Enrollment> active = getActiveEnrollments(learnerUserId);
+        List<Enrollment> active = getActiveEnrollments(learnerUserId, tenantId);
 
         // 1. Direct course enrollment
         for (Enrollment e : active) {
@@ -72,6 +82,11 @@ public class LearnerEntitlementService {
 
     @Transactional(readOnly = true)
     public Enrollment verifyCourseEntitlement(UUID learnerUserId, UUID courseId) {
+        return verifyCourseEntitlement(learnerUserId, courseId, null);
+    }
+
+    @Transactional(readOnly = true)
+    public Enrollment verifyCourseEntitlement(UUID learnerUserId, UUID courseId, UUID tenantId) {
         if (learnerUserId == null) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User must be authenticated to access course content.");
         }
@@ -79,7 +94,7 @@ public class LearnerEntitlementService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Course ID cannot be null.");
         }
 
-        List<Enrollment> active = getActiveEnrollments(learnerUserId);
+        List<Enrollment> active = getActiveEnrollments(learnerUserId, tenantId);
 
         // 1. Direct course match
         for (Enrollment e : active) {
@@ -99,12 +114,17 @@ public class LearnerEntitlementService {
             }
         }
 
-        log.warn("Learner {} denied access to course {}: No active enrollment found.", learnerUserId, courseId);
+        log.warn("Learner {} denied access to course {} (tenant: {}): No active enrollment found.", learnerUserId, courseId, tenantId);
         throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Active enrollment required to access course content.");
     }
 
     @Transactional(readOnly = true)
     public LessonAndEntitlement verifyLessonEntitlement(UUID learnerUserId, UUID lessonId) {
+        return verifyLessonEntitlement(learnerUserId, lessonId, null);
+    }
+
+    @Transactional(readOnly = true)
+    public LessonAndEntitlement verifyLessonEntitlement(UUID learnerUserId, UUID lessonId, UUID tenantId) {
         if (lessonId == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Lesson ID cannot be null.");
         }
@@ -113,7 +133,7 @@ public class LearnerEntitlementService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Lesson not found: " + lessonId));
 
         Course course = lesson.getModule().getVersion().getCourse();
-        Enrollment enrollment = verifyCourseEntitlement(learnerUserId, course.getId());
+        Enrollment enrollment = verifyCourseEntitlement(learnerUserId, course.getId(), tenantId);
 
         return new LessonAndEntitlement(lesson, course, enrollment);
     }

@@ -62,6 +62,11 @@ public class LearnerDashboardService {
 
     @Transactional(readOnly = true)
     public LearnerDashboardResponse getDashboard(UUID learnerUserId) {
+        return getDashboard(learnerUserId, null);
+    }
+
+    @Transactional(readOnly = true)
+    public LearnerDashboardResponse getDashboard(UUID learnerUserId, UUID tenantId) {
         if (learnerUserId == null) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User must be authenticated to access dashboard.");
         }
@@ -75,7 +80,7 @@ public class LearnerDashboardService {
             fullName = user.getEmail();
         }
 
-        List<Enrollment> enrollments = entitlementService.getActiveEnrollments(learnerUserId);
+        List<Enrollment> enrollments = entitlementService.getActiveEnrollments(learnerUserId, tenantId);
 
         // Map courses and programs
         Map<UUID, Enrollment> courseEnrollmentMap = new LinkedHashMap<>();
@@ -109,7 +114,8 @@ public class LearnerDashboardService {
             Course course = courseOpt.get();
 
             Optional<LearnerCourseProgress> progressOpt = courseProgressRepository
-                    .findFirstByLearnerUserIdAndCourseIdOrderByLastActivityAtDesc(learnerUserId, courseId);
+                    .findByLearnerUserIdAndCourseIdAndEnrollmentId(learnerUserId, courseId, enrollment.getId())
+                    .or(() -> courseProgressRepository.findFirstByLearnerUserIdAndCourseIdOrderByLastActivityAtDesc(learnerUserId, courseId));
 
             int totalLessons = 0;
             CurriculumVersion version = course.getPublishedVersion();
@@ -176,7 +182,10 @@ public class LearnerDashboardService {
                 }
                 if (targetLesson != null) {
                     Optional<LearnerLessonProgress> lpOpt = lessonProgressRepository
-                            .findFirstByLearnerUserIdAndLessonIdOrderByLastActivityAtDesc(learnerUserId, targetLesson.getId());
+                            .findByLearnerUserIdAndLessonIdAndEnrollmentId(learnerUserId, targetLesson.getId(), enrollment.getId());
+                    if (lpOpt.isEmpty()) {
+                        lpOpt = lessonProgressRepository.findFirstByLearnerUserIdAndLessonIdOrderByLastActivityAtDesc(learnerUserId, targetLesson.getId());
+                    }
                     int resumePos = lpOpt.map(LearnerLessonProgress::getLastPlaybackPositionSeconds).orElse(0);
 
                     continueTarget = new LearnerDashboardResponse.ContinueLearningTarget(
@@ -241,7 +250,7 @@ public class LearnerDashboardService {
             programSummaries.add(ps);
         }
 
-        // Calculate total watch time in minutes across all lessons
+        // Calculate total watch time across enrolled lessons
         List<LearnerLessonProgress> allLessonsProgress = lessonProgressRepository.findByLearnerUserId(learnerUserId);
         int totalWatchSeconds = 0;
         for (LearnerLessonProgress lp : allLessonsProgress) {

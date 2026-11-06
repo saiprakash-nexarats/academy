@@ -67,6 +67,10 @@ public class LessonMediaAsset {
         return id;
     }
 
+    public void setId(UUID id) {
+        this.id = id;
+    }
+
     public UUID getLessonId() {
         return lessonId;
     }

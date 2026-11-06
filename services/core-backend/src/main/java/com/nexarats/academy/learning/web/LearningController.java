@@ -5,13 +5,12 @@ import com.nexarats.academy.academic.model.CurriculumModule;
 import com.nexarats.academy.academic.model.CurriculumVersion;
 import com.nexarats.academy.academic.model.Lesson;
 import com.nexarats.academy.academic.repository.CourseRepository;
-import com.nexarats.academy.academic.repository.LessonRepository;
 import com.nexarats.academy.academic.repository.CurriculumModuleRepository;
 import com.nexarats.academy.academic.repository.CurriculumVersionRepository;
+import com.nexarats.academy.academic.repository.LessonRepository;
 import com.nexarats.academy.admissions.model.Enrollment;
 import com.nexarats.academy.common.security.UserPrincipal;
 import com.nexarats.academy.learning.dto.*;
-import com.nexarats.academy.learning.model.LearnerCourseProgress;
 import com.nexarats.academy.learning.model.LearnerLessonProgress;
 import com.nexarats.academy.learning.repository.LearnerCourseProgressRepository;
 import com.nexarats.academy.learning.repository.LearnerLessonProgressRepository;
@@ -24,6 +23,7 @@ import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
@@ -33,6 +33,7 @@ import java.util.*;
 
 @RestController
 @RequestMapping("/api/v1/learning")
+@PreAuthorize("hasAnyRole('STUDENT', 'EMPLOYEE', 'ACADEMY_ADMIN', 'SUPER_ADMIN')")
 public class LearningController {
 
     private final LearnerDashboardService dashboardService;
@@ -71,21 +72,21 @@ public class LearningController {
     @GetMapping("/dashboard")
     public ResponseEntity<LearnerDashboardResponse> getDashboard(@AuthenticationPrincipal UserPrincipal principal) {
         assertAuthenticated(principal);
-        LearnerDashboardResponse response = dashboardService.getDashboard(principal.getUserId());
+        LearnerDashboardResponse response = dashboardService.getDashboard(principal.getUserId(), principal.getTenantId());
         return ResponseEntity.ok(response);
     }
 
     @GetMapping("/my-courses")
     public ResponseEntity<List<LearnerDashboardResponse.EnrolledCourseSummary>> getMyCourses(@AuthenticationPrincipal UserPrincipal principal) {
         assertAuthenticated(principal);
-        LearnerDashboardResponse dashboard = dashboardService.getDashboard(principal.getUserId());
+        LearnerDashboardResponse dashboard = dashboardService.getDashboard(principal.getUserId(), principal.getTenantId());
         return ResponseEntity.ok(dashboard.getEnrolledCourses());
     }
 
     @GetMapping("/my-programs")
     public ResponseEntity<List<LearnerDashboardResponse.EnrolledProgramSummary>> getMyPrograms(@AuthenticationPrincipal UserPrincipal principal) {
         assertAuthenticated(principal);
-        LearnerDashboardResponse dashboard = dashboardService.getDashboard(principal.getUserId());
+        LearnerDashboardResponse dashboard = dashboardService.getDashboard(principal.getUserId(), principal.getTenantId());
         return ResponseEntity.ok(dashboard.getEnrolledPrograms());
     }
 
@@ -96,7 +97,7 @@ public class LearningController {
             @AuthenticationPrincipal UserPrincipal principal
     ) {
         assertAuthenticated(principal);
-        Enrollment enrollment = entitlementService.verifyCourseEntitlement(principal.getUserId(), courseId);
+        Enrollment enrollment = entitlementService.verifyCourseEntitlement(principal.getUserId(), courseId, principal.getTenantId());
         Course course = courseRepository.findById(courseId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Course not found: " + courseId));
 
@@ -178,7 +179,7 @@ public class LearningController {
             @AuthenticationPrincipal UserPrincipal principal
     ) {
         assertAuthenticated(principal);
-        LearnerEntitlementService.LessonAndEntitlement le = entitlementService.verifyLessonEntitlement(principal.getUserId(), lessonId);
+        LearnerEntitlementService.LessonAndEntitlement le = entitlementService.verifyLessonEntitlement(principal.getUserId(), lessonId, principal.getTenantId());
         Lesson lesson = le.lesson();
         Course course = le.course();
         Enrollment enrollment = le.enrollment();
@@ -238,7 +239,7 @@ public class LearningController {
             @AuthenticationPrincipal UserPrincipal principal
     ) {
         assertAuthenticated(principal);
-        CourseProgressResponse resp = progressService.getCourseProgress(principal.getUserId(), courseId);
+        CourseProgressResponse resp = progressService.getCourseProgress(principal.getUserId(), courseId, principal.getTenantId());
         return ResponseEntity.ok(resp);
     }
 
@@ -248,7 +249,7 @@ public class LearningController {
             @AuthenticationPrincipal UserPrincipal principal
     ) {
         assertAuthenticated(principal);
-        PlaybackSessionResponse resp = playbackService.createPlaybackSession(principal.getUserId(), lessonId);
+        PlaybackSessionResponse resp = playbackService.createPlaybackSession(principal.getUserId(), lessonId, principal.getTenantId());
         return ResponseEntity.ok(resp);
     }
 
@@ -259,7 +260,7 @@ public class LearningController {
             @AuthenticationPrincipal UserPrincipal principal
     ) {
         assertAuthenticated(principal);
-        PlaybackCheckpointResponse resp = progressService.recordCheckpoint(principal.getUserId(), lessonId, request);
+        PlaybackCheckpointResponse resp = progressService.recordCheckpoint(principal.getUserId(), lessonId, request, principal.getTenantId());
         return ResponseEntity.ok(resp);
     }
 
@@ -269,11 +270,12 @@ public class LearningController {
             @AuthenticationPrincipal UserPrincipal principal
     ) {
         assertAuthenticated(principal);
-        PlaybackCheckpointResponse resp = progressService.markLessonComplete(principal.getUserId(), lessonId);
+        PlaybackCheckpointResponse resp = progressService.markLessonComplete(principal.getUserId(), lessonId, principal.getTenantId());
         return ResponseEntity.ok(resp);
     }
 
     @GetMapping("/media/stream")
+    @PreAuthorize("permitAll()")
     public void streamMedia(
             @RequestParam("token") String token,
             @RequestHeader(value = "Range", required = false) String rangeHeader,

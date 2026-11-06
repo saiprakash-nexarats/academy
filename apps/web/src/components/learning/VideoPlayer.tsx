@@ -48,7 +48,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [hasResumed, setHasResumed] = useState<boolean>(false)
   const [isBuffering, setIsBuffering] = useState<boolean>(false)
 
-  const lastCheckpointTimeRef = useRef<number>(initialPositionSeconds)
+  // Accurately decouple watch time duration from playback position
+  const accumulatedWatchSecondsRef = useRef<number>(0)
+  const lastRealTimeRef = useRef<number>(0)
   const controlsTimeoutRef = useRef<number | null>(null)
 
   // Initialize playback position upon initial load
@@ -60,25 +62,57 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   }, [initialPositionSeconds, hasResumed])
 
+  // Active watch-time tracker: increments strictly while video is actively playing
+  useEffect(() => {
+    if (!isPlaying) return
+
+    lastRealTimeRef.current = performance.now()
+
+    const ticker = window.setInterval(() => {
+      if (!videoRef.current || videoRef.current.paused || videoRef.current.seeking) {
+        lastRealTimeRef.current = performance.now()
+        return
+      }
+
+      const now = performance.now()
+      const elapsedRealSec = (now - lastRealTimeRef.current) / 1000
+      lastRealTimeRef.current = now
+
+      // Safely clamp tick elapsed duration to avoid browser background-tab throttling bursts
+      if (elapsedRealSec > 0 && elapsedRealSec <= 2) {
+        accumulatedWatchSecondsRef.current += elapsedRealSec
+      }
+    }, 500)
+
+    return () => clearInterval(ticker)
+  }, [isPlaying])
+
+  // Helper to submit accumulated watch time checkpoint
+  const flushCheckpoint = useCallback(() => {
+    if (!videoRef.current) return
+    const cur = Math.floor(videoRef.current.currentTime)
+    const watchDelta = Math.floor(accumulatedWatchSecondsRef.current)
+
+    if (watchDelta >= 1) {
+      // Clamped to backend boundary (<= 300s)
+      const safeDelta = Math.min(300, watchDelta)
+      onCheckpoint(cur, safeDelta)
+      accumulatedWatchSecondsRef.current = Math.max(0, accumulatedWatchSecondsRef.current - watchDelta)
+    }
+  }, [onCheckpoint])
+
   // Periodic progress checkpoint ticker (every 10 seconds of active playback)
   useEffect(() => {
     if (!isPlaying) return
 
     const interval = window.setInterval(() => {
-      if (videoRef.current) {
-        const cur = Math.floor(videoRef.current.currentTime)
-        const delta = Math.max(0, cur - lastCheckpointTimeRef.current)
-        if (delta >= 5) {
-          onCheckpoint(cur, delta)
-          lastCheckpointTimeRef.current = cur
-        }
-      }
+      flushCheckpoint()
     }, 10000)
 
     return () => clearInterval(interval)
-  }, [isPlaying, onCheckpoint])
+  }, [isPlaying, flushCheckpoint])
 
-  // Hide controls after 3 seconds of inactivity
+  // Hide controls after 3.5 seconds of inactivity
   const handleMouseMove = () => {
     setShowControls(true)
     if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current)
@@ -90,41 +124,37 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const togglePlay = useCallback(() => {
     if (!videoRef.current) return
     if (videoRef.current.paused) {
+      lastRealTimeRef.current = performance.now()
       videoRef.current.play().then(() => setIsPlaying(true)).catch((err) => {
         console.warn('Playback play request prevented:', err)
       })
     } else {
       videoRef.current.pause()
       setIsPlaying(false)
-      // Send checkpoint on pause
-      const cur = Math.floor(videoRef.current.currentTime)
-      const delta = Math.max(0, cur - lastCheckpointTimeRef.current)
-      if (delta > 0) {
-        onCheckpoint(cur, delta)
-        lastCheckpointTimeRef.current = cur
-      }
+      // Submit accumulated progress on pause
+      flushCheckpoint()
     }
-  }, [onCheckpoint])
+  }, [flushCheckpoint])
 
-  const handleTimeUpdate = () => {
+  const seekTo = useCallback((targetTime: number) => {
     if (!videoRef.current) return
-    const cur = videoRef.current.currentTime
-    setCurrentTime(cur)
+    const total = duration || durationSeconds || 100
+    const clampedTarget = Math.max(0, Math.min(total, targetTime))
 
-    // Trigger complete if reached 90%
-    const total = duration || durationSeconds
-    if (total > 0 && cur >= total * 0.90 && !isCompleted) {
-      onComplete()
-    }
-  }
+    videoRef.current.currentTime = clampedTarget
+    setCurrentTime(clampedTarget)
+    // Reset real-time reference so seek jump does not pollute watch-time
+    lastRealTimeRef.current = performance.now()
+  }, [duration, durationSeconds])
 
-  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const seekBy = useCallback((offsetSec: number) => {
+    if (!videoRef.current) return
+    seekTo(videoRef.current.currentTime + offsetSec)
+  }, [seekTo])
+
+  const handleSeekSlider = (e: React.ChangeEvent<HTMLInputElement>) => {
     const target = parseFloat(e.target.value)
-    if (videoRef.current) {
-      videoRef.current.currentTime = target
-      setCurrentTime(target)
-      lastCheckpointTimeRef.current = Math.floor(target)
-    }
+    seekTo(target)
   }
 
   const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -136,12 +166,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   }
 
-  const toggleMute = () => {
+  const toggleMute = useCallback(() => {
     if (!videoRef.current) return
     const nextMuted = !isMuted
     setIsMuted(nextMuted)
     videoRef.current.muted = nextMuted
-  }
+  }, [isMuted])
 
   const handleSpeedChange = (rate: number) => {
     setPlaybackRate(rate)
@@ -150,14 +180,79 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   }
 
-  const toggleFullscreen = () => {
+  const toggleFullscreen = useCallback(() => {
     if (!containerRef.current) return
     if (!document.fullscreenElement) {
       containerRef.current.requestFullscreen().catch((err) => console.warn(err))
     } else {
       document.exitFullscreen().catch((err) => console.warn(err))
     }
+  }, [])
+
+  const handleTimeUpdate = () => {
+    if (!videoRef.current) return
+    const cur = videoRef.current.currentTime
+    setCurrentTime(cur)
+
+    // Trigger complete if reached 90%
+    const total = duration || durationSeconds
+    if (total > 0 && cur >= total * 0.90 && !isCompleted) {
+      flushCheckpoint()
+      onComplete()
+    }
   }
+
+  // Keyboard accessibility handler
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement as HTMLElement | null
+      const isInput =
+        activeEl &&
+        (activeEl.tagName === 'INPUT' ||
+          activeEl.tagName === 'TEXTAREA' ||
+          activeEl.tagName === 'SELECT' ||
+          activeEl.isContentEditable)
+
+      if (isInput) return
+
+      // Space: Toggle Play/Pause
+      if (e.code === 'Space') {
+        e.preventDefault()
+        togglePlay()
+      }
+      // ArrowLeft: Seek backward 5 seconds
+      else if (e.code === 'ArrowLeft') {
+        e.preventDefault()
+        seekBy(-5)
+      }
+      // ArrowRight: Seek forward 5 seconds
+      else if (e.code === 'ArrowRight') {
+        e.preventDefault()
+        seekBy(5)
+      }
+      // KeyM: Toggle Mute
+      else if (e.code === 'KeyM') {
+        e.preventDefault()
+        toggleMute()
+      }
+      // KeyF: Toggle Fullscreen
+      else if (e.code === 'KeyF') {
+        e.preventDefault()
+        toggleFullscreen()
+      }
+    }
+
+    const container = containerRef.current
+    if (container) {
+      container.addEventListener('keydown', handleKeyDown)
+    }
+
+    return () => {
+      if (container) {
+        container.removeEventListener('keydown', handleKeyDown)
+      }
+    }
+  }, [togglePlay, seekBy, toggleMute, toggleFullscreen])
 
   const formatTime = (secs: number) => {
     const total = Math.floor(secs)
@@ -186,7 +281,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         {onRetrySession && (
           <button
             onClick={onRetrySession}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white text-xs font-semibold rounded-full transition-all"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white text-xs font-semibold rounded-full transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
           >
             <RotateCcw className="w-3.5 h-3.5" />
             Retry Authorization
@@ -199,8 +294,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   return (
     <div
       ref={containerRef}
+      tabIndex={0}
+      role="region"
+      aria-label="Course Lesson Video Player"
       onMouseMove={handleMouseMove}
-      className="relative aspect-video w-full rounded-2xl bg-slate-950 overflow-hidden border border-slate-800 shadow-2xl group select-none"
+      className="relative aspect-video w-full rounded-2xl bg-slate-950 overflow-hidden border border-slate-800 shadow-2xl group select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
     >
       {/* Video Media Element */}
       {streamUrl && (
@@ -221,6 +319,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           onPause={() => setIsPlaying(false)}
           onEnded={() => {
             setIsPlaying(false)
+            flushCheckpoint()
             onComplete()
           }}
           onClick={togglePlay}
@@ -267,9 +366,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             max={duration || durationSeconds || 100}
             step={0.5}
             value={currentTime}
-            onChange={handleSeek}
+            onChange={handleSeekSlider}
             aria-label="Seek video progress"
-            className="w-full h-1.5 bg-slate-700/80 rounded-lg appearance-none cursor-pointer accent-brand-500 hover:h-2 transition-all"
+            className="w-full h-1.5 bg-slate-700/80 rounded-lg appearance-none cursor-pointer accent-brand-500 hover:h-2 transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
           />
         </div>
 
@@ -279,8 +378,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             {/* Play/Pause */}
             <button
               onClick={togglePlay}
-              aria-label={isPlaying ? 'Pause video' : 'Play video'}
-              className="p-1.5 hover:bg-white/10 rounded-full transition-colors cursor-pointer"
+              aria-label={isPlaying ? 'Pause video (Space)' : 'Play video (Space)'}
+              className="p-1.5 hover:bg-white/10 rounded-full transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
             >
               {isPlaying ? <Pause className="w-5 h-5 fill-white" /> : <Play className="w-5 h-5 fill-white" />}
             </button>
@@ -289,8 +388,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             <div className="flex items-center gap-1.5 group/vol">
               <button
                 onClick={toggleMute}
-                aria-label={isMuted ? 'Unmute' : 'Mute'}
-                className="p-1.5 hover:bg-white/10 rounded-full transition-colors cursor-pointer"
+                aria-label={isMuted ? 'Unmute (M)' : 'Mute (M)'}
+                className="p-1.5 hover:bg-white/10 rounded-full transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
               >
                 {isMuted || volume === 0 ? (
                   <VolumeX className="w-4 h-4 text-slate-400" />
@@ -306,7 +405,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 value={isMuted ? 0 : volume}
                 onChange={handleVolumeChange}
                 aria-label="Volume slider"
-                className="w-16 h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-brand-500 hidden group-hover/vol:block transition-all"
+                className="w-16 h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-brand-500 hidden group-hover/vol:block transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
               />
             </div>
 
@@ -323,8 +422,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 <button
                   key={rate}
                   onClick={() => handleSpeedChange(rate)}
+                  aria-label={`Set speed to ${rate}x`}
                   className={cn(
-                    'px-1.5 py-0.5 rounded cursor-pointer transition-colors',
+                    'px-1.5 py-0.5 rounded cursor-pointer transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-brand-400',
                     playbackRate === rate ? 'bg-brand-600 text-white font-bold' : 'text-slate-400 hover:text-white'
                   )}
                 >
@@ -336,8 +436,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             {/* Fullscreen */}
             <button
               onClick={toggleFullscreen}
-              aria-label="Toggle fullscreen"
-              className="p-1.5 hover:bg-white/10 rounded-full transition-colors cursor-pointer"
+              aria-label="Toggle fullscreen (F)"
+              className="p-1.5 hover:bg-white/10 rounded-full transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
             >
               <Maximize className="w-4 h-4 text-slate-300 hover:text-white" />
             </button>

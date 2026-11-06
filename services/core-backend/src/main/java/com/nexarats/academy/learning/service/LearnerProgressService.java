@@ -56,7 +56,12 @@ public class LearnerProgressService {
 
     @Transactional
     public CourseProgressResponse getCourseProgress(UUID learnerUserId, UUID courseId) {
-        Enrollment enrollment = entitlementService.verifyCourseEntitlement(learnerUserId, courseId);
+        return getCourseProgress(learnerUserId, courseId, null);
+    }
+
+    @Transactional
+    public CourseProgressResponse getCourseProgress(UUID learnerUserId, UUID courseId, UUID tenantId) {
+        Enrollment enrollment = entitlementService.verifyCourseEntitlement(learnerUserId, courseId, tenantId);
         Course course = courseRepository.findById(courseId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Course not found: " + courseId));
 
@@ -101,7 +106,7 @@ public class LearnerProgressService {
                 dto.setDurationMinutes(l.getDurationMinutes());
                 dto.setDisplayOrder(l.getDisplayOrder());
                 dto.setPreviewable(l.isPreviewable());
-                dto.setLocked(false); // Entitled learner can access all published lessons
+                dto.setLocked(false);
                 dto.setCompleted(isCompleted);
                 dto.setLastPlaybackPositionSeconds(lp != null ? lp.getLastPlaybackPositionSeconds() : 0);
                 dto.setWatchTimeSeconds(lp != null ? lp.getWatchTimeSeconds() : 0);
@@ -136,6 +141,11 @@ public class LearnerProgressService {
 
     @Transactional
     public PlaybackCheckpointResponse recordCheckpoint(UUID learnerUserId, UUID lessonId, PlaybackCheckpointRequest request) {
+        return recordCheckpoint(learnerUserId, lessonId, request, null);
+    }
+
+    @Transactional
+    public PlaybackCheckpointResponse recordCheckpoint(UUID learnerUserId, UUID lessonId, PlaybackCheckpointRequest request, UUID tenantId) {
         if (request == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Checkpoint request cannot be null.");
         }
@@ -146,7 +156,7 @@ public class LearnerProgressService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unrealistic watch time delta: must be between 0 and 300 seconds.");
         }
 
-        LearnerEntitlementService.LessonAndEntitlement le = entitlementService.verifyLessonEntitlement(learnerUserId, lessonId);
+        LearnerEntitlementService.LessonAndEntitlement le = entitlementService.verifyLessonEntitlement(learnerUserId, lessonId, tenantId);
         Lesson lesson = le.lesson();
         Course course = le.course();
         Enrollment enrollment = le.enrollment();
@@ -245,13 +255,18 @@ public class LearnerProgressService {
                 savedLp.getCompletionPercentage(),
                 savedLp.isCompleted(),
                 courseProg.getCompletionPercentage(),
-                "Progress checkpoint successfully recorded."
+                "Progress checkpoint recorded successfully."
         );
     }
 
     @Transactional
     public PlaybackCheckpointResponse markLessonComplete(UUID learnerUserId, UUID lessonId) {
-        LearnerEntitlementService.LessonAndEntitlement le = entitlementService.verifyLessonEntitlement(learnerUserId, lessonId);
+        return markLessonComplete(learnerUserId, lessonId, null);
+    }
+
+    @Transactional
+    public PlaybackCheckpointResponse markLessonComplete(UUID learnerUserId, UUID lessonId, UUID tenantId) {
+        LearnerEntitlementService.LessonAndEntitlement le = entitlementService.verifyLessonEntitlement(learnerUserId, lessonId, tenantId);
         Lesson lesson = le.lesson();
         Course course = le.course();
         Enrollment enrollment = le.enrollment();

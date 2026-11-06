@@ -2,6 +2,8 @@ package com.nexarats.academy.learning.service;
 
 import com.nexarats.academy.academic.model.Lesson;
 import com.nexarats.academy.admissions.model.Enrollment;
+import com.nexarats.academy.admissions.model.EnrollmentStatus;
+import com.nexarats.academy.admissions.repository.EnrollmentRepository;
 import com.nexarats.academy.learning.dto.PlaybackSessionResponse;
 import com.nexarats.academy.learning.model.LearnerLessonProgress;
 import com.nexarats.academy.learning.model.LessonMediaAsset;
@@ -12,7 +14,7 @@ import com.nexarats.academy.learning.repository.PlaybackSessionRepository;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.core.io.ClassPathResource;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -36,33 +38,62 @@ public class VideoPlaybackService {
     private final LessonMediaAssetRepository mediaAssetRepository;
     private final PlaybackSessionRepository playbackSessionRepository;
     private final LearnerLessonProgressRepository lessonProgressRepository;
+    private final EnrollmentRepository enrollmentRepository;
+    private final MediaStorageService mediaStorageService;
+
+    @Value("${nexarats.learning.media.demo-fallback-enabled:true}")
+    private boolean demoFallbackEnabled;
 
     public VideoPlaybackService(LearnerEntitlementService entitlementService,
                                 LessonMediaAssetRepository mediaAssetRepository,
                                 PlaybackSessionRepository playbackSessionRepository,
-                                LearnerLessonProgressRepository lessonProgressRepository) {
+                                LearnerLessonProgressRepository lessonProgressRepository,
+                                EnrollmentRepository enrollmentRepository,
+                                MediaStorageService mediaStorageService) {
         this.entitlementService = entitlementService;
         this.mediaAssetRepository = mediaAssetRepository;
         this.playbackSessionRepository = playbackSessionRepository;
         this.lessonProgressRepository = lessonProgressRepository;
+        this.enrollmentRepository = enrollmentRepository;
+        this.mediaStorageService = mediaStorageService;
     }
 
     @Transactional
     public PlaybackSessionResponse createPlaybackSession(UUID learnerUserId, UUID lessonId) {
-        LearnerEntitlementService.LessonAndEntitlement le = entitlementService.verifyLessonEntitlement(learnerUserId, lessonId);
+        return createPlaybackSession(learnerUserId, lessonId, null);
+    }
+
+    @Transactional
+    public PlaybackSessionResponse createPlaybackSession(UUID learnerUserId, UUID lessonId, UUID tenantId) {
+        LearnerEntitlementService.LessonAndEntitlement le = entitlementService.verifyLessonEntitlement(learnerUserId, lessonId, tenantId);
         Lesson lesson = le.lesson();
         Enrollment enrollment = le.enrollment();
 
+        if (enrollment.getStatus() != EnrollmentStatus.ENROLLED && enrollment.getStatus() != EnrollmentStatus.ACTIVE) {
+            log.warn("Learner {} denied playback session: Enrollment {} is in status {}", learnerUserId, enrollment.getId(), enrollment.getStatus());
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Active enrollment required for playback session.");
+        }
+
         LessonMediaAsset asset = mediaAssetRepository.findFirstByLessonId(lessonId)
                 .orElseGet(() -> {
-                    LessonMediaAsset created = new LessonMediaAsset(
-                            lessonId,
-                            "VIDEO_STREAM",
-                            "media/sample_lesson.mp4",
-                            Math.max(60, lesson.getDurationMinutes() * 60)
-                    );
-                    return mediaAssetRepository.save(created);
+                    if (demoFallbackEnabled) {
+                        LessonMediaAsset created = new LessonMediaAsset(
+                                lessonId,
+                                "VIDEO_STREAM",
+                                "media/sample_lesson.mp4",
+                                Math.max(60, lesson.getDurationMinutes() * 60)
+                        );
+                        created.setStatus("READY");
+                        created.setStorageProvider("INTERNAL_STREAMING");
+                        return mediaAssetRepository.save(created);
+                    }
+                    throw new ResponseStatusException(HttpStatus.NOT_FOUND, "No media asset configured for lesson: " + lessonId);
                 });
+
+        if (!"READY".equalsIgnoreCase(asset.getStatus())) {
+            log.warn("Media asset {} for lesson {} is not ready. Status: {}", asset.getId(), lessonId, asset.getStatus());
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Media asset is not ready for playback. Current status: " + asset.getStatus());
+        }
 
         Optional<LearnerLessonProgress> lpOpt = lessonProgressRepository
                 .findByLearnerUserIdAndLessonIdAndEnrollmentId(learnerUserId, lessonId, enrollment.getId());
@@ -82,7 +113,7 @@ public class VideoPlaybackService {
         playbackSessionRepository.save(session);
 
         String streamUrl = "/api/v1/learning/media/stream?token=" + token;
-        log.info("Created authorized playback session for learner {} on lesson {}", learnerUserId, lessonId);
+        log.info("Created authorized playback session for learner {} on lesson {} (asset: {})", learnerUserId, lessonId, asset.getId());
 
         return new PlaybackSessionResponse(
                 token,
@@ -107,12 +138,39 @@ public class VideoPlaybackService {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Playback session token has expired.");
         }
 
+        // Validate enrollment authorization
+        Enrollment enrollment = enrollmentRepository.findById(session.getEnrollmentId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "Associated enrollment record not found."));
+
+        if (enrollment.getStatus() != EnrollmentStatus.ENROLLED && enrollment.getStatus() != EnrollmentStatus.ACTIVE) {
+            log.warn("Media stream denied: Enrollment {} is in status {}", enrollment.getId(), enrollment.getStatus());
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Enrollment is no longer active for playback.");
+        }
+
+        // Resolve LessonMediaAsset
+        LessonMediaAsset asset = null;
+        if (session.getAssetId() != null) {
+            asset = mediaAssetRepository.findById(session.getAssetId()).orElse(null);
+        }
+        if (asset == null) {
+            asset = mediaAssetRepository.findFirstByLessonId(session.getLessonId())
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Media asset record not found for lesson: " + session.getLessonId()));
+        }
+
+        if (!"READY".equalsIgnoreCase(asset.getStatus())) {
+            log.warn("Media asset {} for lesson {} is not ready. Status: {}", asset.getId(), session.getLessonId(), asset.getStatus());
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Media asset is not ready for streaming. Status: " + asset.getStatus());
+        }
+
         session.setLastHeartbeatAt(Instant.now());
         playbackSessionRepository.save(session);
 
-        Resource mediaResource = new ClassPathResource("media/sample_lesson.mp4");
-        if (!mediaResource.exists()) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Media stream asset not found on server.");
+        // Resolve physical / cloud media resource
+        Resource mediaResource = mediaStorageService.resolveMediaResource(asset.getStorageProvider(), asset.getStorageObjectKey());
+        if (mediaResource == null || !mediaResource.exists()) {
+            log.error("Media asset {} exists in catalog but resource not found on storage: provider={}, key={}",
+                    asset.getId(), asset.getStorageProvider(), asset.getStorageObjectKey());
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Media stream asset not found on storage provider for key: " + asset.getStorageObjectKey());
         }
 
         try {

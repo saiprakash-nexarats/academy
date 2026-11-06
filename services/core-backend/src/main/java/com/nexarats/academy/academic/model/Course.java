@@ -295,6 +295,15 @@ public class Course {
         this.publishedVersionId = publishedVersionId;
     }
 
+    public void setPublishedVersion(CurriculumVersion version) {
+        if (version != null) {
+            this.publishedVersionId = version.getId();
+            if (this.curriculumVersions != null && !this.curriculumVersions.contains(version)) {
+                this.curriculumVersions.add(version);
+            }
+        }
+    }
+
     public boolean isFeatured() {
         return isFeatured;
     }
