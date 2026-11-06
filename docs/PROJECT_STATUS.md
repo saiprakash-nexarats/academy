@@ -2,10 +2,11 @@
 
 **Project:** Nexarats Academy Enterprise Education Platform  
 **Target Branch:** `master`  
-**Current Baseline Commit:** `b05171e` (Phase 6 Final Hardened Baseline)  
-**Current Status:** Phase 6 Final Playback Security & CI Quality Gate Completed — VERIFIED_COMPLETE (CI Run 42211441108 Green)  
+**Current Baseline Commit:** `582faea` (Phase 6 Final Hardened Baseline & Audit Synchronized)  
+**Current Status:** Milestone 1 Core Foundation — 5/70 Phases Verified Complete (7.14%), 6 Partially Complete (Phases 5, 7, 8, 9, 10, 11), 1 Blocked (Phase 12), 58 Not Started  
+**Comprehensive Audit Reference:** `docs/academy-roadmap/COMPLETE_70_PHASE_PROGRESS_AUDIT.md`  
 **Last Updated:** November 2026  
-**Next Recommended Action:** Phase 6B (Student Academic Onboarding & Legal Terms)  
+**Next Recommended Action:** Phase 6B: Student Profile & Academic Onboarding (Roadmap Phase 6)  
 
 ---
 
@@ -13,12 +14,12 @@
 
 | Subsystem | Health Status | Key Metrics | Active Work Remaining |
 |:---|:---|:---|:---|
-| **Frontend (`apps/web`)** | 🟢 Healthy | 0 Lint Errors, 0 Build Errors, 15/15 Vitest & Node Tests Passing | Student onboarding wizard, batch calendar |
-| **Core Backend (`services/core-backend`)** | 🟢 Healthy | 127/127 Tests Passing in CI (PostgreSQL + Redis), 40 Core Unit/Security/Modulith Tests Passing | Phase 6B student onboarding |
+| **Frontend (`apps/web`)** | 🟢 Healthy | 0 Lint Errors, 0 Build Errors, 15/15 Vitest & Node Tests Passing | Onboarding wizard, bookmarking drawer, batch countdown |
+| **Core Backend (`services/core-backend`)** | 🟢 Healthy | 127/127 Tests Passing in CI (PostgreSQL + Redis), 40 Core Unit/Security/Modulith Tests Passing | Phase 6B onboarding, waitlist queue, streak calculator |
 | **Database Migrations** | 🟢 Verified | Flyway V1–V10 applied cleanly | V11 migration for student onboarding |
 | **Security & RBAC** | 🟢 Hardened | Spring Security Integration Tests, Strict Tenant Scoping, Session Token Binding | Fine-grained permission evaluations |
-| **Video Playback & Media** | 🟢 Hardened | `MediaStorageService`, Path Traversal Protected, RFC 7233, Server-Side Watch Delta Limits | Cloud MinIO/S3 transcode worker in Phase 14 |
-| **Progress Engine** | 🟢 Hardened | Video watch-time $\ge 80\%$ required for completion, Non-video manual completion, Dual-tenant isolation | Daily streak counters |
+| **Video Playback & Media** | 🟢 Hardened | `MediaStorageService`, Path Traversal Protected, RFC 7233, Server-Side Watch Delta Limits | Video bookmarking, transcript drawer, S3 transcode |
+| **Progress Engine** | 🟢 Hardened | Video watch-time $\ge 80\%$ required for completion, Non-video manual completion, Dual-tenant isolation | Daily streak counters, learning bookmarks |
 
 ---
 

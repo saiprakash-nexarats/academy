@@ -2,8 +2,17 @@
 
 **Master Plan:** 70 Phases (Milestones 1–9)  
 **Tracking Document:** `PHASE_PROGRESS.md`  
-**Current Phase:** Phase 6 Final CI & Security Hardening (Implements Roadmap Phases 10 & 11)  
-**Status:** VERIFIED COMPLETE  
+**Audit Reference:** `docs/academy-roadmap/COMPLETE_70_PHASE_PROGRESS_AUDIT.md`  
+**Current Baseline Commit:** `582faea`  
+**Current Status Summary:**
+- **Total Phases:** 70
+- **Verified Complete:** 5 (7.14%)
+- **Partially Complete:** 6 (Phases 5, 7, 8, 9, 10, 11)
+- **Implemented Unverified:** 0
+- **Blocked:** 1 (Phase 12 — blocked by incomplete prerequisites)
+- **Not Started:** 58 (82.86%)
+- **Current Milestone:** Milestone 1 (38.46% Verified Complete — 5/13)
+- **Next Immediate Action:** Phase 6B: Student Profile & Academic Onboarding
 
 ---
 
@@ -14,27 +23,27 @@
 - [x] **Phase 1: Enterprise Repository Monorepo Scaffold & Tooling**
   - Turborepo + pnpm monorepo setup, Spring Boot 4.1.1 + Spring Modulith 2.1.1 backend skeleton.
 - [x] **Phase 2: Core Identity, Multi-Tenant Architecture & Auth Service**
-  - JWT auth, refresh token rotation, tenant isolation, role-based access control.
+  - JWT auth, refresh token rotation, tenant isolation, role-based access control (29 backend security tests).
 - [x] **Phase 3: Public Catalog & Dynamic Programs API**
-  - Dynamic PostgreSQL programs catalog, TanStack Query integration.
+  - Dynamic PostgreSQL programs catalog, TanStack Query integration (13 backend catalog tests).
 - [x] **Phase 4: Modular Course Catalog & Syllabus Engine**
-  - Hierarchical courses, modules, and lessons catalog, previewable lessons gate.
-- [x] **Phase 5: Admissions Funnel & Checkout Pipeline (Consolidated)**
-  - Lead capture, checkout payment processing, course enrollments table.
-- [ ] **Phase 6 (Roadmap): Student Profile & Academic Onboarding**
-  - *Status:* **PENDING PREREQUISITE**. Requires onboarding wizard, S3 avatar upload, ClamAV, terms e-signing (Scheduled as Phase 6B).
-- [x] **Phase 7 (Roadmap Partial): Tuition Billing & Payment Gateway**
-  - *Status:* Upfront test gateway implemented in Git Phase 5; recurring installment plans deferred.
-- [ ] **Phase 8 (Roadmap Partial): Cohort Batch Scheduler & Timetable Engine**
-  - *Status:* Basic batches table created; timetable planner & conflict engine pending.
-- [x] **Phase 9 (Roadmap): Student Enrollment & Batch Allocation**
-  - *Status:* Implemented via `enrollments` table with active course and program tracking.
-- [x] **Phase 10 (Roadmap) / Git Phase 6: Student LMS Dashboard**
-  - *Status:* **VERIFIED COMPLETE**. `/dashboard` and `/learning` interfaces, course and lesson progress, strict enrollment-level multi-tenant isolation.
-- [x] **Phase 11 (Roadmap) / Git Phase 6: Modular Curriculum Video Player & Progress**
-  - *Status:* **VERIFIED COMPLETE**. `MediaStorageService`, path traversal defense, RFC 7233 streaming, keyboard shortcuts, accurate watch-time accumulation ($\ge 80\%$ duration strictly required for video completion), server-side session token bounds, React VideoPlayer state decoupling, Vitest component test suite (15/15 frontend tests passing).
-- [ ] **Phase 12 (Roadmap): End-to-End MVP Milestone Release Gate & Validation**
-  - *Status:* Scheduled upon completion of Phase 6 onboarding.
+  - Hierarchical courses, modules, and lessons catalog, previewable lessons gate (13 backend course tests).
+- [ ] **Phase 5: Admissions Funnel & CRM Lead Pipeline**
+  - *Status:* **PARTIALLY COMPLETE**. Lead capture form and applications table implemented; counseling booking engine and CRM admin review portal pending.
+- [ ] **Phase 6: Student Profile & Academic Onboarding**
+  - *Status:* **NOT STARTED (PENDING PREREQUISITE)**. Requires onboarding wizard, student profiles, legal terms e-signing, avatar upload, ClamAV integration (Scheduled as Phase 6B).
+- [ ] **Phase 7: Tuition Billing, Installments & Payment Gateway Integration**
+  - *Status:* **PARTIALLY COMPLETE**. Upfront test payment gateway and webhook replay defense implemented; recurring installment plans (EMI) and PDF invoices pending.
+- [ ] **Phase 8: Cohort Batch Scheduler & Timetable Engine**
+  - *Status:* **PARTIALLY COMPLETE**. Batch entity and pessimistic seat capacity locking implemented; timetable scheduling engine and conflict detection pending.
+- [ ] **Phase 9: Student Enrollment & Batch Allocation**
+  - *Status:* **PARTIALLY COMPLETE**. Enrollment entity and program cascading implemented; waitlist queues for filled batches and dashboard cohort countdown pending.
+- [ ] **Phase 10: Student LMS Dashboard (Core Portal Shell)**
+  - *Status:* **PARTIALLY COMPLETE**. `/dashboard` portal shell, dynamic completed lesson counters, progress percentage bars, and continue link implemented; `student_streaks` table, learning streak counters, and announcements pending.
+- [ ] **Phase 11: Modular Curriculum Video Player & Progress Tracking**
+  - *Status:* **PARTIALLY COMPLETE**. `MediaStorageService`, path traversal defense, RFC 7233 byte-range streaming, keyboard shortcuts, accurate watch-time accumulation ($\ge 80\%$ duration viewing rule), and server-side session heartbeats verified (15 frontend tests, 127 backend CI tests); video bookmarking, transcript drawer, and HLS streaming pending.
+- [ ] **Phase 12: End-to-End MVP Milestone Release Gate & Validation**
+  - *Status:* **BLOCKED**. Blocked by incomplete prerequisites in Phases 5, 6, 7, 8, 9, 10, and 11.
 
 ---
 

@@ -38,11 +38,11 @@ The table below reconciles Git implementation phases with the master 70-phase sp
 | **Phase 5** | Admissions Leads & Basic Checkout | **Phase 5** | Admissions Funnel & CRM Lead Pipeline | Milestone 1 | **Implemented (Partial Scope)** |
 | *Merged into P5* | Payment Gateway & Transaction Logs | **Phase 7** | Tuition Billing, Installments & Payment Gateway | Milestone 1 | **Implemented (Basic Checkout only; Installments pending)** |
 | *Merged into P5* | Basic Cohort Model | **Phase 8** | Cohort Batch Scheduler & Timetable Engine | Milestone 1 | **Partial (Timetable & Conflict Engine pending)** |
-| *Merged into P5* | Student Course Enrollment State | **Phase 9** | Student Enrollment & Batch Allocation | Milestone 1 | **Implemented (Direct & Program enrollment)** |
-| **Skipped** | *None in Git* | **Phase 6** | **Student Profile & Academic Onboarding** | Milestone 1 | **PENDING ROADMAP DELIVERABLE** |
-| **Git Phase 6** | Student Learning Dashboard | **Phase 10** | Student LMS Dashboard (Core Portal Shell) | Milestone 1 | **Recovered & Verified** |
-| **Git Phase 6** | Video Streaming & Watch Progress | **Phase 11** | Modular Curriculum Video Player & Progress | Milestone 1 | **Recovered & Verified** |
-| **Next Target** | Formal Milestone 1 Acceptance | **Phase 12** | End-to-End MVP Milestone Release Gate | Milestone 1 | **Pending** |
+| *Merged into P5* | Student Course Enrollment State | **Phase 9** | Student Enrollment & Batch Allocation | Milestone 1 | **Partially Complete (Waitlist queues & cohort countdown pending)** |
+| **Skipped in Git**| Legal Onboarding & Profile | **Phase 6** | **Student Profile & Academic Onboarding** | Milestone 1 | **NOT STARTED (Immediate Target Phase 6B)** |
+| **Git Phase 6** | Student Learning Dashboard | **Phase 10** | Student LMS Dashboard (Core Portal Shell) | Milestone 1 | **Partially Complete (Streaks & announcements pending)** |
+| **Git Phase 6** | Video Streaming & Watch Progress | **Phase 11** | Modular Curriculum Video Player & Progress | Milestone 1 | **Partially Complete (Video bookmarks & transcript drawer pending)** |
+| **Blocked Gate**| Formal Milestone 1 Acceptance | **Phase 12** | End-to-End MVP Milestone Release Gate | Milestone 1 | **BLOCKED (Requires Phase 6 and prerequisites completion)** |
 | *Proposed in R43* | Capstone Sandbox & Certificates | **Phase 22–29**| Coding Sandboxes, Proctored Exams & Credentials | Milestone 3 | **DEFERRED (Prerequisites Required)** |
 
 ---
@@ -81,29 +81,52 @@ The following architectural deliverables from Milestone 1 (Phases 0–12) remain
   - Installment scheduler (`installment_schedules`).
   - Automated PDF receipt/invoice generator.
 
+### Deliverable D: Waitlist Queue & Cohort Countdown (Original Phase 9 Enhancements)
+- **Status:** Direct enrollment and program track cascading implemented, but waitlist queue for full cohorts and dashboard countdown are missing.
+- **Backend Requirements:**
+  - Waitlist queue entity (`enrollment_waitlists`).
+  - Automatic seat vacancy promotion engine.
+- **Frontend Requirements:**
+  - Cohort start countdown card in student dashboard.
+
+### Deliverable E: Learning Streaks & Announcements (Original Phase 10 Enhancements)
+- **Status:** Dashboard shell, active courses, and lesson counters implemented, but learning streaks and announcements are missing.
+- **Backend & Database Requirements:**
+  - Table: `student_streaks`, `announcements`.
+  - Daily streak calculation service based on learning activity logs.
+- **Frontend Requirements:**
+  - Learning streak flame counter widget and announcements banner in `/dashboard`.
+
+### Deliverable F: Video Bookmarking & Transcript Drawer (Original Phase 11 Enhancements)
+- **Status:** Video streaming, resume playback, keyboard shortcuts, and 80% viewing completion gate verified, but bookmarks and transcripts are missing.
+- **Frontend & Database Requirements:**
+  - Table: `lesson_bookmarks`, `lesson_transcripts`.
+  - VideoPlayer bookmarking button and transcript search drawer.
+
 ---
 
 ## 4. Prerequisite Dependency Graph Before Capstone Work
 
 ```mermaid
 flowchart TD
-    P2["Phase 2: Auth & Tenant Model (DONE)"] --> P5["Phase 5: Admissions Funnel (DONE)"]
+    P2["Phase 2: Auth & Tenant Model (DONE)"] --> P5["Phase 5: Admissions Funnel (PARTIAL)"]
     P4["Phase 4: Course Catalog (DONE)"] --> P8["Phase 8: Batch & Timetable Scheduler (PARTIAL)"]
     P5 --> P7["Phase 7: Billing & Payments (PARTIAL)"]
-    P5 --> P6["Phase 6: Student Profile Onboarding (PENDING)"]
-    P7 --> P9["Phase 9: Enrollment & Batch Allocation (DONE)"]
+    P5 --> P6["Phase 6: Student Profile Onboarding (NOT STARTED)"]
+    P7 --> P9["Phase 9: Enrollment & Batch Allocation (PARTIAL)"]
     P8 --> P9
-    P9 --> P10["Phase 10: LMS Dashboard (RECOVERED)"]
-    P10 --> P11["Phase 11: Video Player & Progress (RECOVERED)"]
-    P6 --> P12["Phase 12: E2E MVP Milestone 1 Release Gate (NEXT)"]
+    P9 --> P10["Phase 10: LMS Dashboard (PARTIAL)"]
+    P10 --> P11["Phase 11: Video Player & Progress (PARTIAL)"]
+    P6 --> P12["Phase 12: E2E MVP Milestone 1 Release Gate (BLOCKED)"]
     P11 --> P12
     P12 --> M2["Milestone 2: Mentorship & WebRTC (Phases 13-21)"]
     M2 --> M3["Milestone 3: Capstone, Sandboxes & Certs (Phases 22-29)"]
 
     style P6 fill:#ffcccc,stroke:#ff0000,stroke-width:2px;
-    style P10 fill:#ccffcc,stroke:#00aa00,stroke-width:2px;
-    style P11 fill:#ccffcc,stroke:#00aa00,stroke-width:2px;
-    style P12 fill:#ffffcc,stroke:#aaaa00,stroke-width:2px;
+    style P9 fill:#fff2cc,stroke:#d6b656,stroke-width:2px;
+    style P10 fill:#fff2cc,stroke:#d6b656,stroke-width:2px;
+    style P11 fill:#fff2cc,stroke:#d6b656,stroke-width:2px;
+    style P12 fill:#f8cecc,stroke:#b85450,stroke-width:2px;
 ```
 
 > [!CAUTION]
