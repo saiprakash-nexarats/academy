@@ -19,5 +19,9 @@ public interface LearnerLessonProgressRepository extends JpaRepository<LearnerLe
 
     List<LearnerLessonProgress> findByLearnerUserIdAndCourseId(UUID learnerUserId, UUID courseId);
 
+    List<LearnerLessonProgress> findByLearnerUserIdAndCourseIdAndEnrollmentId(UUID learnerUserId, UUID courseId, UUID enrollmentId);
+
     long countByLearnerUserIdAndCourseIdAndIsCompletedTrue(UUID learnerUserId, UUID courseId);
+
+    long countByLearnerUserIdAndCourseIdAndEnrollmentIdAndIsCompletedTrue(UUID learnerUserId, UUID courseId, UUID enrollmentId);
 }

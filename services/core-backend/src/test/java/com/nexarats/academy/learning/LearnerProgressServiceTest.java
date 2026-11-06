@@ -7,7 +7,6 @@ import com.nexarats.academy.academic.model.Lesson;
 import com.nexarats.academy.academic.repository.CourseRepository;
 import com.nexarats.academy.admissions.model.Enrollment;
 import com.nexarats.academy.admissions.model.EnrollmentStatus;
-import com.nexarats.academy.learning.dto.CourseProgressResponse;
 import com.nexarats.academy.learning.dto.PlaybackCheckpointRequest;
 import com.nexarats.academy.learning.dto.PlaybackCheckpointResponse;
 import com.nexarats.academy.learning.model.LearnerCourseProgress;
@@ -28,7 +27,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -145,6 +143,123 @@ public class LearnerProgressServiceTest {
     }
 
     @Test
+    @DisplayName("Forward seek beyond 90% does NOT mark lesson completed without accumulated watch time")
+    void testForwardSeekBeyond90PercentDoesNotCompleteLesson() {
+        when(entitlementService.verifyLessonEntitlement(learnerUserId, lessonId, tenantId))
+                .thenReturn(new LearnerEntitlementService.LessonAndEntitlement(lesson, course, enrollment));
+        when(activityRecordRepository.findByIdempotencyKey(any())).thenReturn(Optional.empty());
+
+        LearnerLessonProgress lp = new LearnerLessonProgress(learnerUserId, enrollment.getId(), courseId, lessonId);
+        lp.setWatchTimeSeconds(15);
+        lp.setLastPlaybackPositionSeconds(15);
+        when(lessonProgressRepository.findByLearnerUserIdAndLessonIdAndEnrollmentId(learnerUserId, lessonId, enrollment.getId()))
+                .thenReturn(Optional.of(lp));
+        when(lessonProgressRepository.save(any(LearnerLessonProgress.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LearnerCourseProgress courseProg = new LearnerCourseProgress(learnerUserId, enrollment.getId(), courseId, tenantId);
+        when(courseProgressRepository.findByLearnerUserIdAndCourseIdAndEnrollmentId(learnerUserId, courseId, enrollment.getId()))
+                .thenReturn(Optional.of(courseProg));
+        when(mediaAssetRepository.findFirstByLessonId(lessonId)).thenReturn(Optional.of(mediaAsset));
+
+        // User scrubs/seeks playhead to 1150s (95.8% of 1200s), but watch delta is only 5s
+        PlaybackCheckpointRequest request = new PlaybackCheckpointRequest(1150, 5, "seek_key_95");
+        PlaybackCheckpointResponse response = progressService.recordCheckpoint(learnerUserId, lessonId, request, tenantId);
+
+        // Resume position is tracked at 1150s, but lesson is NOT completed
+        assertThat(response.getLastPlaybackPositionSeconds()).isEqualTo(1150);
+        assertThat(response.getWatchTimeSeconds()).isEqualTo(20); // 15 + 5
+        assertThat(response.isLessonCompleted()).isFalse();
+        assertThat(response.getLessonCompletionPercentage()).isLessThan(100);
+        verify(lessonProgressRepository).save(lp);
+    }
+
+    @Test
+    @DisplayName("Meaningful accumulated watch time >= 80% marks lesson completed")
+    void testAccumulatedWatchTimeCompletesLesson() {
+        when(entitlementService.verifyLessonEntitlement(learnerUserId, lessonId, tenantId))
+                .thenReturn(new LearnerEntitlementService.LessonAndEntitlement(lesson, course, enrollment));
+        when(activityRecordRepository.findByIdempotencyKey(any())).thenReturn(Optional.empty());
+
+        LearnerLessonProgress lp = new LearnerLessonProgress(learnerUserId, enrollment.getId(), courseId, lessonId);
+        lp.setWatchTimeSeconds(950); // 80% of 1200 is 960s
+        lp.setLastPlaybackPositionSeconds(950);
+        when(lessonProgressRepository.findByLearnerUserIdAndLessonIdAndEnrollmentId(learnerUserId, lessonId, enrollment.getId()))
+                .thenReturn(Optional.of(lp));
+        when(lessonProgressRepository.save(any(LearnerLessonProgress.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LearnerCourseProgress courseProg = new LearnerCourseProgress(learnerUserId, enrollment.getId(), courseId, tenantId);
+        when(courseProgressRepository.findByLearnerUserIdAndCourseIdAndEnrollmentId(learnerUserId, courseId, enrollment.getId()))
+                .thenReturn(Optional.of(courseProg));
+        when(mediaAssetRepository.findFirstByLessonId(lessonId)).thenReturn(Optional.of(mediaAsset));
+        when(lessonProgressRepository.countByLearnerUserIdAndCourseIdAndEnrollmentIdAndIsCompletedTrue(learnerUserId, courseId, enrollment.getId()))
+                .thenReturn(1L);
+
+        // Adds 20s watch time -> total 970s >= 960s threshold
+        PlaybackCheckpointRequest request = new PlaybackCheckpointRequest(970, 20, "watch_complete_key");
+        PlaybackCheckpointResponse response = progressService.recordCheckpoint(learnerUserId, lessonId, request, tenantId);
+
+        assertThat(response.isLessonCompleted()).isTrue();
+        assertThat(response.getLessonCompletionPercentage()).isEqualTo(100);
+        assertThat(response.getCourseCompletionPercentage()).isEqualTo(100);
+    }
+
+    @Test
+    @DisplayName("Pause checkpoint preserves resume position without incrementing watch time")
+    void testPauseCheckpointPreservesState() {
+        when(entitlementService.verifyLessonEntitlement(learnerUserId, lessonId, tenantId))
+                .thenReturn(new LearnerEntitlementService.LessonAndEntitlement(lesson, course, enrollment));
+        when(activityRecordRepository.findByIdempotencyKey(any())).thenReturn(Optional.empty());
+
+        LearnerLessonProgress lp = new LearnerLessonProgress(learnerUserId, enrollment.getId(), courseId, lessonId);
+        lp.setWatchTimeSeconds(300);
+        lp.setLastPlaybackPositionSeconds(300);
+        when(lessonProgressRepository.findByLearnerUserIdAndLessonIdAndEnrollmentId(learnerUserId, lessonId, enrollment.getId()))
+                .thenReturn(Optional.of(lp));
+        when(lessonProgressRepository.save(any(LearnerLessonProgress.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LearnerCourseProgress courseProg = new LearnerCourseProgress(learnerUserId, enrollment.getId(), courseId, tenantId);
+        when(courseProgressRepository.findByLearnerUserIdAndCourseIdAndEnrollmentId(learnerUserId, courseId, enrollment.getId()))
+                .thenReturn(Optional.of(courseProg));
+        when(mediaAssetRepository.findFirstByLessonId(lessonId)).thenReturn(Optional.of(mediaAsset));
+
+        // Paused event: delta is 0
+        PlaybackCheckpointRequest request = new PlaybackCheckpointRequest(300, 0, "pause_key");
+        PlaybackCheckpointResponse response = progressService.recordCheckpoint(learnerUserId, lessonId, request, tenantId);
+
+        assertThat(response.getLastPlaybackPositionSeconds()).isEqualTo(300);
+        assertThat(response.getWatchTimeSeconds()).isEqualTo(300);
+        assertThat(response.isLessonCompleted()).isFalse();
+    }
+
+    @Test
+    @DisplayName("Replay checkpoint updates playback position backward without losing accumulated watch time")
+    void testReplayPreservesWatchTime() {
+        when(entitlementService.verifyLessonEntitlement(learnerUserId, lessonId, tenantId))
+                .thenReturn(new LearnerEntitlementService.LessonAndEntitlement(lesson, course, enrollment));
+        when(activityRecordRepository.findByIdempotencyKey(any())).thenReturn(Optional.empty());
+
+        LearnerLessonProgress lp = new LearnerLessonProgress(learnerUserId, enrollment.getId(), courseId, lessonId);
+        lp.setWatchTimeSeconds(400);
+        lp.setLastPlaybackPositionSeconds(400);
+        when(lessonProgressRepository.findByLearnerUserIdAndLessonIdAndEnrollmentId(learnerUserId, lessonId, enrollment.getId()))
+                .thenReturn(Optional.of(lp));
+        when(lessonProgressRepository.save(any(LearnerLessonProgress.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LearnerCourseProgress courseProg = new LearnerCourseProgress(learnerUserId, enrollment.getId(), courseId, tenantId);
+        when(courseProgressRepository.findByLearnerUserIdAndCourseIdAndEnrollmentId(learnerUserId, courseId, enrollment.getId()))
+                .thenReturn(Optional.of(courseProg));
+        when(mediaAssetRepository.findFirstByLessonId(lessonId)).thenReturn(Optional.of(mediaAsset));
+
+        // Replaying earlier section: position jumps backward to 50s with 10s of watched time
+        PlaybackCheckpointRequest request = new PlaybackCheckpointRequest(50, 10, "replay_key");
+        PlaybackCheckpointResponse response = progressService.recordCheckpoint(learnerUserId, lessonId, request, tenantId);
+
+        assertThat(response.getLastPlaybackPositionSeconds()).isEqualTo(50);
+        assertThat(response.getWatchTimeSeconds()).isEqualTo(410); // 400 + 10
+        assertThat(response.isLessonCompleted()).isFalse();
+    }
+
+    @Test
     @DisplayName("Replay checkpoint submission with identical idempotency key is safely deduplicated")
     void testIdempotentCheckpointReplay() {
         when(entitlementService.verifyLessonEntitlement(learnerUserId, lessonId, tenantId))
@@ -187,33 +302,6 @@ public class LearnerProgressServiceTest {
     }
 
     @Test
-    @DisplayName("Lesson completes automatically when playback position reaches >= 90% of duration")
-    void testLessonAutoCompletionAt90Percent() {
-        when(entitlementService.verifyLessonEntitlement(learnerUserId, lessonId, tenantId))
-                .thenReturn(new LearnerEntitlementService.LessonAndEntitlement(lesson, course, enrollment));
-        when(activityRecordRepository.findByIdempotencyKey(any())).thenReturn(Optional.empty());
-
-        LearnerLessonProgress lp = new LearnerLessonProgress(learnerUserId, enrollment.getId(), courseId, lessonId);
-        when(lessonProgressRepository.findByLearnerUserIdAndLessonIdAndEnrollmentId(learnerUserId, lessonId, enrollment.getId()))
-                .thenReturn(Optional.of(lp));
-        when(lessonProgressRepository.save(any(LearnerLessonProgress.class))).thenAnswer(inv -> inv.getArgument(0));
-
-        LearnerCourseProgress courseProg = new LearnerCourseProgress(learnerUserId, enrollment.getId(), courseId, tenantId);
-        when(courseProgressRepository.findByLearnerUserIdAndCourseIdAndEnrollmentId(learnerUserId, courseId, enrollment.getId()))
-                .thenReturn(Optional.of(courseProg));
-        when(mediaAssetRepository.findFirstByLessonId(lessonId)).thenReturn(Optional.of(mediaAsset));
-        when(lessonProgressRepository.countByLearnerUserIdAndCourseIdAndIsCompletedTrue(learnerUserId, courseId)).thenReturn(1L);
-
-        // 90% of 1200 seconds = 1080 seconds
-        PlaybackCheckpointRequest request = new PlaybackCheckpointRequest(1100, 10, "key_complete_90");
-        PlaybackCheckpointResponse response = progressService.recordCheckpoint(learnerUserId, lessonId, request, tenantId);
-
-        assertThat(response.isLessonCompleted()).isTrue();
-        assertThat(response.getLessonCompletionPercentage()).isEqualTo(100);
-        assertThat(response.getCourseCompletionPercentage()).isEqualTo(100);
-    }
-
-    @Test
     @DisplayName("Explicit lesson completion marks lesson completed and updates course percentage")
     void testExplicitLessonComplete() {
         when(entitlementService.verifyLessonEntitlement(learnerUserId, lessonId, tenantId))
@@ -227,7 +315,8 @@ public class LearnerProgressServiceTest {
         LearnerCourseProgress courseProg = new LearnerCourseProgress(learnerUserId, enrollment.getId(), courseId, tenantId);
         when(courseProgressRepository.findByLearnerUserIdAndCourseIdAndEnrollmentId(learnerUserId, courseId, enrollment.getId()))
                 .thenReturn(Optional.of(courseProg));
-        when(lessonProgressRepository.countByLearnerUserIdAndCourseIdAndIsCompletedTrue(learnerUserId, courseId)).thenReturn(1L);
+        when(lessonProgressRepository.countByLearnerUserIdAndCourseIdAndEnrollmentIdAndIsCompletedTrue(learnerUserId, courseId, enrollment.getId()))
+                .thenReturn(1L);
 
         PlaybackCheckpointResponse response = progressService.markLessonComplete(learnerUserId, lessonId, tenantId);
 
@@ -237,4 +326,3 @@ public class LearnerProgressServiceTest {
         verify(activityRecordRepository).save(any(LearningActivityRecord.class));
     }
 }
-

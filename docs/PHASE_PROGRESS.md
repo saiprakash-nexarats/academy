@@ -2,8 +2,8 @@
 
 **Master Plan:** 70 Phases (Milestones 1–9)  
 **Tracking Document:** `PHASE_PROGRESS.md`  
-**Current Phase:** Phase 6 Recovery (Implements Roadmap Phases 10 & 11)  
-**Status:** RECOVERED & VERIFIED  
+**Current Phase:** Phase 6 Final CI & Security Hardening (Implements Roadmap Phases 10 & 11)  
+**Status:** VERIFIED COMPLETE  
 
 ---
 
@@ -22,7 +22,7 @@
 - [x] **Phase 5: Admissions Funnel & Checkout Pipeline (Consolidated)**
   - Lead capture, checkout payment processing, course enrollments table.
 - [ ] **Phase 6 (Roadmap): Student Profile & Academic Onboarding**
-  - *Status:* **PENDING PREREQUISITE**. Requires onboarding wizard, S3 avatar upload, ClamAV, terms e-signing.
+  - *Status:* **PENDING PREREQUISITE**. Requires onboarding wizard, S3 avatar upload, ClamAV, terms e-signing (Scheduled as Phase 6B).
 - [x] **Phase 7 (Roadmap Partial): Tuition Billing & Payment Gateway**
   - *Status:* Upfront test gateway implemented in Git Phase 5; recurring installment plans deferred.
 - [ ] **Phase 8 (Roadmap Partial): Cohort Batch Scheduler & Timetable Engine**
@@ -30,9 +30,9 @@
 - [x] **Phase 9 (Roadmap): Student Enrollment & Batch Allocation**
   - *Status:* Implemented via `enrollments` table with active course and program tracking.
 - [x] **Phase 10 (Roadmap) / Git Phase 6: Student LMS Dashboard**
-  - *Status:* **RECOVERED & VERIFIED**. `/dashboard` and `/learning` interfaces, course and lesson progress.
+  - *Status:* **VERIFIED COMPLETE**. `/dashboard` and `/learning` interfaces, course and lesson progress, strict enrollment-level multi-tenant isolation.
 - [x] **Phase 11 (Roadmap) / Git Phase 6: Modular Curriculum Video Player & Progress**
-  - *Status:* **RECOVERED & VERIFIED**. `MediaStorageService`, RFC 7233 streaming, keyboard shortcuts, accurate watch-time accumulation.
+  - *Status:* **VERIFIED COMPLETE**. `MediaStorageService`, path traversal defense, RFC 7233 streaming, keyboard shortcuts, accurate watch-time accumulation ($\ge 80\%$ duration required for completion), 7 automated frontend tests passing.
 - [ ] **Phase 12 (Roadmap): End-to-End MVP Milestone Release Gate & Validation**
   - *Status:* Scheduled upon completion of Phase 6 onboarding.
 

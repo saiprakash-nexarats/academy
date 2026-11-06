@@ -112,7 +112,8 @@ public class LearningController {
 
         List<CurriculumModule> modules = moduleRepository.findByVersionIdWithLessons(version.getId());
 
-        List<LearnerLessonProgress> existingProgress = lessonProgressRepository.findByLearnerUserIdAndCourseId(principal.getUserId(), courseId);
+        List<LearnerLessonProgress> existingProgress = lessonProgressRepository
+                .findByLearnerUserIdAndCourseIdAndEnrollmentId(principal.getUserId(), courseId, enrollment.getId());
         Map<UUID, LearnerLessonProgress> progressMap = new HashMap<>();
         for (LearnerLessonProgress lp : existingProgress) {
             progressMap.put(lp.getLessonId(), lp);
@@ -285,8 +286,8 @@ public class LearningController {
     }
 
     private void assertAuthenticated(UserPrincipal principal) {
-        if (principal == null || principal.getUserId() == null) {
-            throw new AccessDeniedException("Authentication required to access learning resources.");
+        if (principal == null || principal.getUserId() == null || principal.getTenantId() == null) {
+            throw new AccessDeniedException("Authentication and tenant context required to access learning resources.");
         }
     }
 }

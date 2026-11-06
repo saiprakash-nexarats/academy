@@ -1,0 +1,31 @@
+# ==============================================================================
+# NEXARATS ACADEMY — GITLEAKS CONFIGURATION (.gitleaks.toml)
+# Enterprise secret scanning configuration with test fixture allowlists
+# ==============================================================================
+
+title = "Nexarats Academy Enterprise Secret Scanner"
+
+[extend]
+# Extends standard default rules
+
+[allowlist]
+description = "Allowlisted test files, synthetic tokens, documentation, and sample fixtures"
+paths = [
+    '''application-test\.yml''',
+    '''application\.yml''',
+    '''pom\.xml''',
+    '''package\.json''',
+    '''pnpm-lock\.yaml''',
+    '''node_modules''',
+    '''docs/.*''',
+    '''.*\.md''',
+    '''.*Test\.java''',
+    '''.*Tests\.java'''
+]
+regexes = [
+    '''nexarats_secret_dev''',
+    '''nexarats_redis_dev''',
+    '''dev-bootstrap-secret-2026''',
+    '''StudentPass2026!''',
+    '''SecurePass2026!'''
+]

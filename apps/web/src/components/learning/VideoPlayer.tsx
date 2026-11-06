@@ -194,9 +194,21 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const cur = videoRef.current.currentTime
     setCurrentTime(cur)
 
-    // Trigger complete if reached 90%
+    // Accumulate real elapsed playing time (strictly ignoring seek jumps)
+    if (isPlaying && !videoRef.current.paused && !videoRef.current.seeking) {
+      const now = performance.now()
+      if (lastRealTimeRef.current > 0) {
+        const deltaSec = (now - lastRealTimeRef.current) / 1000
+        if (deltaSec > 0 && deltaSec < 5) {
+          accumulatedWatchSecondsRef.current += deltaSec
+        }
+      }
+      lastRealTimeRef.current = now
+    }
+
+    // Auto-complete only when meaningful cumulative watch time threshold (>= 80% duration) is reached
     const total = duration || durationSeconds
-    if (total > 0 && cur >= total * 0.90 && !isCompleted) {
+    if (total > 0 && !isCompleted && accumulatedWatchSecondsRef.current >= total * 0.80) {
       flushCheckpoint()
       onComplete()
     }

@@ -3,10 +3,14 @@ package com.nexarats.academy.learning.service;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -17,11 +21,17 @@ public class DefaultMediaStorageService implements MediaStorageService {
 
     private static final Logger log = LoggerFactory.getLogger(DefaultMediaStorageService.class);
 
+    private final Environment environment;
+
     @Value("${nexarats.learning.media.storage-root:}")
     private String storageRoot;
 
-    @Value("${nexarats.learning.media.demo-fallback-enabled:true}")
+    @Value("${nexarats.learning.media.demo-fallback-enabled:false}")
     private boolean demoFallbackEnabled;
+
+    public DefaultMediaStorageService(Environment environment) {
+        this.environment = environment;
+    }
 
     @Override
     public Resource resolveMediaResource(String storageProvider, String storageObjectKey) {
@@ -29,6 +39,9 @@ public class DefaultMediaStorageService implements MediaStorageService {
             log.warn("Cannot resolve media resource: storageObjectKey is null or blank.");
             return null;
         }
+
+        // Security check: Reject path traversal and absolute path injection
+        validateStorageObjectKey(storageObjectKey);
 
         String provider = storageProvider != null ? storageProvider.toUpperCase() : "INTERNAL_STREAMING";
 
@@ -45,9 +58,14 @@ public class DefaultMediaStorageService implements MediaStorageService {
         if ("LOCAL_STORAGE".equals(provider) || "INTERNAL_STREAMING".equals(provider)) {
             Path targetPath;
             if (storageRoot != null && !storageRoot.isBlank()) {
-                targetPath = Paths.get(storageRoot, storageObjectKey);
+                Path root = Paths.get(storageRoot).toAbsolutePath().normalize();
+                targetPath = root.resolve(storageObjectKey).normalize();
+                if (!targetPath.startsWith(root)) {
+                    log.warn("Directory traversal attempt outside storage root: {}", storageObjectKey);
+                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Access outside configured storage root is prohibited.");
+                }
             } else {
-                targetPath = Paths.get(storageObjectKey);
+                targetPath = Paths.get(storageObjectKey).normalize();
             }
 
             if (Files.exists(targetPath) && Files.isReadable(targetPath)) {
@@ -56,14 +74,15 @@ public class DefaultMediaStorageService implements MediaStorageService {
             }
         }
 
-        // 3. Cloud storage providers (S3, MINIO) - hook for Phase 14
+        // 3. Cloud storage providers (S3, MINIO) - marked incomplete / pending Phase 14
         if ("S3".equals(provider) || "MINIO".equals(provider)) {
-            log.info("Cloud storage provider {} requested for key {}. Cloud storage adapter hook ready for Phase 14.", provider, storageObjectKey);
-            return null;
+            log.warn("Cloud storage provider {} requested for key {}. Cloud storage adapter is incomplete (scheduled for Phase 14).", provider, storageObjectKey);
+            throw new ResponseStatusException(HttpStatus.NOT_IMPLEMENTED, "Cloud media storage provider " + provider + " is not yet implemented (scheduled for Phase 14).");
         }
 
-        // 4. Fallback for demo media fixtures when configured
-        if (demoFallbackEnabled && "media/sample_lesson.mp4".equals(storageObjectKey)) {
+        // 4. Fallback for demo media fixtures: strictly disabled by default; restricted to non-production profiles
+        boolean isNonProduction = !environment.acceptsProfiles(Profiles.of("prod", "production"));
+        if (demoFallbackEnabled && isNonProduction && "media/sample_lesson.mp4".equals(storageObjectKey)) {
             Resource sample = new ClassPathResource("media/sample_lesson.mp4");
             if (sample.exists()) {
                 log.info("Serving demo media asset for key: {}", storageObjectKey);
@@ -75,6 +94,13 @@ public class DefaultMediaStorageService implements MediaStorageService {
         return null;
     }
 
+    private void validateStorageObjectKey(String key) {
+        if (key.contains("..") || key.startsWith("/") || key.startsWith("\\") || key.matches("^[a-zA-Z]:.*")) {
+            log.warn("Unauthorized path or directory traversal sequence detected in storageObjectKey: {}", key);
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid storage object key: directory traversal and absolute paths are prohibited.");
+        }
+    }
+
     @Override
     public boolean supports(String storageProvider) {
         if (storageProvider == null) return false;
@@ -82,4 +108,3 @@ public class DefaultMediaStorageService implements MediaStorageService {
         return p.equals("INTERNAL_STREAMING") || p.equals("LOCAL_STORAGE") || p.equals("CLASSPATH") || p.equals("S3") || p.equals("MINIO");
     }
 }
-

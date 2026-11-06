@@ -41,11 +41,14 @@ public class LearnerEntitlementService {
 
     @Transactional(readOnly = true)
     public List<Enrollment> getActiveEnrollments(UUID learnerUserId, UUID tenantId) {
-        if (learnerUserId == null) return List.of();
+        if (learnerUserId == null || tenantId == null) {
+            // Fail-closed: missing user or tenant context strictly rejects enrollment access
+            return List.of();
+        }
         List<Enrollment> all = enrollmentRepository.findByLearnerUserIdOrderByEnrolledAtDesc(learnerUserId);
         return all.stream()
                 .filter(e -> e.getStatus() == EnrollmentStatus.ENROLLED || e.getStatus() == EnrollmentStatus.ACTIVE)
-                .filter(e -> tenantId == null || e.getTenantId() == null || e.getTenantId().equals(tenantId))
+                .filter(e -> e.getTenantId() != null && e.getTenantId().equals(tenantId))
                 .toList();
     }
 
@@ -92,6 +95,9 @@ public class LearnerEntitlementService {
         }
         if (courseId == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Course ID cannot be null.");
+        }
+        if (tenantId == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Tenant context is required for course access.");
         }
 
         List<Enrollment> active = getActiveEnrollments(learnerUserId, tenantId);

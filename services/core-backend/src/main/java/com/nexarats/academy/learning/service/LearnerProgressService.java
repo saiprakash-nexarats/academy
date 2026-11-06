@@ -79,7 +79,8 @@ public class LearnerProgressService {
                 });
 
         // Compute lesson progress items
-        List<LearnerLessonProgress> existingLessonProgs = lessonProgressRepository.findByLearnerUserIdAndCourseId(learnerUserId, courseId);
+        List<LearnerLessonProgress> existingLessonProgs = lessonProgressRepository
+                .findByLearnerUserIdAndCourseIdAndEnrollmentId(learnerUserId, courseId, enrollment.getId());
         Map<UUID, LearnerLessonProgress> progressByLessonId = new HashMap<>();
         for (LearnerLessonProgress lp : existingLessonProgs) {
             progressByLessonId.put(lp.getLessonId(), lp);
@@ -197,9 +198,9 @@ public class LearnerProgressService {
             durationSeconds = mediaOpt.get().getDurationSeconds();
         }
 
-        // Completion heuristic: 90% position reached or 80% total watch time accumulated
-        boolean shouldComplete = request.getPlaybackPositionSeconds() >= (durationSeconds * 0.90) ||
-                lp.getWatchTimeSeconds() >= (durationSeconds * 0.80);
+        // Completion policy: strictly governed by meaningful accumulated watch time (>= 80% duration).
+        // Forward scrubbing/seeking playhead beyond 90% does NOT qualify for completion.
+        boolean shouldComplete = lp.getWatchTimeSeconds() >= (durationSeconds * 0.80);
 
         if (shouldComplete && !lp.isCompleted()) {
             lp.setCompleted(true);
@@ -207,7 +208,8 @@ public class LearnerProgressService {
             lp.setCompletionPercentage(100);
             lp.setCompletedAt(Instant.now());
         } else if (!lp.isCompleted()) {
-            int calculated = (int) ((request.getPlaybackPositionSeconds() * 100L) / Math.max(1, durationSeconds));
+            // Completion percentage reflects meaningful watched time, capped at 99 until completion threshold
+            int calculated = (int) ((lp.getWatchTimeSeconds() * 100L) / Math.max(1, durationSeconds));
             lp.setCompletionPercentage(Math.min(99, Math.max(lp.getCompletionPercentage(), calculated)));
             lp.setStatus("IN_PROGRESS");
         }
@@ -226,8 +228,8 @@ public class LearnerProgressService {
         courseProg.setCurrentLessonId(lessonId);
         courseProg.setLastActivityAt(Instant.now());
 
-        // Recalculate course percentage
-        long completedCount = lessonProgressRepository.countByLearnerUserIdAndCourseIdAndIsCompletedTrue(learnerUserId, course.getId());
+        // Recalculate course percentage strictly scoped to this enrollment
+        long completedCount = lessonProgressRepository.countByLearnerUserIdAndCourseIdAndEnrollmentIdAndIsCompletedTrue(learnerUserId, course.getId(), enrollment.getId());
         int totalLessons = 0;
         for (CurriculumModule mod : lesson.getModule().getVersion().getModules()) {
             totalLessons += mod.getLessons().size();
@@ -295,7 +297,7 @@ public class LearnerProgressService {
                 });
 
         courseProg.setCurrentLessonId(lessonId);
-        long completedCount = lessonProgressRepository.countByLearnerUserIdAndCourseIdAndIsCompletedTrue(learnerUserId, course.getId());
+        long completedCount = lessonProgressRepository.countByLearnerUserIdAndCourseIdAndEnrollmentIdAndIsCompletedTrue(learnerUserId, course.getId(), enrollment.getId());
         int totalLessons = 0;
         for (CurriculumModule mod : lesson.getModule().getVersion().getModules()) {
             totalLessons += mod.getLessons().size();

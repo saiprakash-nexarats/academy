@@ -153,7 +153,18 @@ public class LearningControllerSecurityTest {
     void testUnauthenticatedDashboardDenied() {
         assertThatThrownBy(() -> learningController.getDashboard(null))
                 .isInstanceOf(AccessDeniedException.class)
-                .hasMessageContaining("Authentication required");
+                .hasMessageContaining("Authentication and tenant context required");
+    }
+
+    @Test
+    @DisplayName("Request with missing tenant ID throws AccessDeniedException")
+    void testMissingTenantThrowsAccessDenied() {
+        UserPrincipal principalNoTenant = new UserPrincipal(
+                userId, "test@example.com", "Test", null, "default", UUID.randomUUID(), Set.of("ROLE_STUDENT"), Set.of()
+        );
+        assertThatThrownBy(() -> learningController.getDashboard(principalNoTenant))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("tenant context required");
     }
 }
 

@@ -2,10 +2,10 @@
 
 **Project:** Nexarats Academy Enterprise Education Platform  
 **Target Branch:** `master`  
-**Current Baseline Commit:** `268e666` (Audited Baseline)  
-**Current Status:** Phase 6 Recovery Completed — Audit Findings Cleared  
+**Current Baseline Commit:** `3a956fc` (Phase 6 Final Hardened Baseline)  
+**Current Status:** Phase 6 Final CI, Security & Verification Completed — VERIFIED_COMPLETE  
 **Last Updated:** November 2026  
-**Next Recommended Action:** Phase 6B (Student Academic Onboarding & Legal Terms) or Phase 12 (Milestone 1 E2E Release Gate)  
+**Next Recommended Action:** Phase 6B (Student Academic Onboarding & Legal Terms)  
 
 ---
 
@@ -13,12 +13,12 @@
 
 | Subsystem | Health Status | Key Metrics | Active Work Remaining |
 |:---|:---|:---|:---|
-| **Frontend (`apps/web`)** | 🟢 Healthy | 0 Lint Errors, 0 Build Errors, Vite 2.48s | Student onboarding wizard, batch calendar |
-| **Core Backend (`services/core-backend`)** | 🟢 Healthy | 24 Isolated Unit/Modulith Tests Passing | Integration test H2/Testcontainers profile |
+| **Frontend (`apps/web`)** | 🟢 Healthy | 0 Lint Errors, 0 Build Errors, 7/7 Video Tests Passing | Student onboarding wizard, batch calendar |
+| **Core Backend (`services/core-backend`)** | 🟢 Healthy | 34 Unit/Modulith Tests Passing, CI Profile Hardened | Phase 6B student onboarding |
 | **Database Migrations** | 🟢 Verified | Flyway V1–V10 applied cleanly | V11 migration for student onboarding |
-| **Security & RBAC** | 🟢 Hardened | Method security `@PreAuthorize`, Tenant Scoping | Fine-grained permission evaluations |
-| **Video Playback & Media** | 🟢 Recovered | `MediaStorageService` abstraction, RFC 7233 | Cloud MinIO/S3 transcode worker in Phase 14 |
-| **Progress Engine** | 🟢 Recovered | Accurate wall-clock tracking, Seek defense | Daily streak counters |
+| **Security & RBAC** | 🟢 Hardened | Spring Security Integration Tests, Strict Tenant Scoping | Fine-grained permission evaluations |
+| **Video Playback & Media** | 🟢 Hardened | `MediaStorageService`, Path Traversal Protected, RFC 7233 | Cloud MinIO/S3 transcode worker in Phase 14 |
+| **Progress Engine** | 🟢 Hardened | Watch-time $\ge 80\%$ completion, Dual-tenant isolation | Daily streak counters |
 
 ---
 

@@ -10,6 +10,8 @@
     "build:web": "turbo run build --filter=@nexarats/web",
     "lint": "turbo run lint",
     "lint:web": "turbo run lint --filter=@nexarats/web",
+    "test": "pnpm --filter @nexarats/web test",
+    "test:web": "pnpm --filter @nexarats/web test",
     "backend:build": "mvn -f services/core-backend/pom.xml compile",
     "backend:test": "mvn -f services/core-backend/pom.xml test",
     "docker:up": "docker compose -f infrastructure/docker/docker-compose.yml up -d",

@@ -137,10 +137,10 @@ public class LearningAndVideoDeliveryIntegrationTests {
         String testIp = "10.0." + (int)(Math.random() * 200) + "." + (int)(Math.random() * 200);
         RegisterRequest req = new RegisterRequest(email, "StudentPass2026!", firstName, lastName, null);
         LoginResponse resp = authService.register(req, testIp, "TestAgent");
-        return new UserAuth(resp.accessToken(), resp.user().id());
+        return new UserAuth(resp.accessToken(), resp.user().id(), resp.tenant() != null ? resp.tenant().id() : null);
     }
 
-    private record UserAuth(String token, UUID userId) {}
+    private record UserAuth(String token, UUID userId, UUID tenantId) {}
 
     @Test
     @DisplayName("Test 1: Enrolled learner can access dashboard with real stats and continue learning target")
@@ -151,6 +151,7 @@ public class LearningAndVideoDeliveryIntegrationTests {
         // Create enrollment
         Enrollment enr = new Enrollment("ENR-TEST-" + UUID.randomUUID().toString().substring(0, 6), auth.userId(), testCohort.getId(), EnrollmentStatus.ENROLLED);
         enr.setCourseId(testCourse.getId());
+        enr.setTenantId(auth.tenantId());
         enrollmentRepository.save(enr);
 
         MvcResult result = mockMvc.perform(get("/api/v1/learning/dashboard")
@@ -201,6 +202,7 @@ public class LearningAndVideoDeliveryIntegrationTests {
 
         Enrollment enr = new Enrollment("ENR-TEST-" + UUID.randomUUID().toString().substring(0, 6), auth.userId(), testCohort.getId(), EnrollmentStatus.ENROLLED);
         enr.setCourseId(testCourse.getId());
+        enr.setTenantId(auth.tenantId());
         enrollmentRepository.save(enr);
 
         // 1. Request Playback Session
@@ -230,6 +232,7 @@ public class LearningAndVideoDeliveryIntegrationTests {
 
         Enrollment enr = new Enrollment("ENR-TEST-" + UUID.randomUUID().toString().substring(0, 6), auth.userId(), testCohort.getId(), EnrollmentStatus.ENROLLED);
         enr.setCourseId(testCourse.getId());
+        enr.setTenantId(auth.tenantId());
         enrollmentRepository.save(enr);
 
         MvcResult sessResult = mockMvc.perform(post("/api/v1/learning/lessons/" + testLesson.getId() + "/playback-session")
@@ -260,6 +263,7 @@ public class LearningAndVideoDeliveryIntegrationTests {
 
         Enrollment enr = new Enrollment("ENR-TEST-" + UUID.randomUUID().toString().substring(0, 6), auth.userId(), testCohort.getId(), EnrollmentStatus.ENROLLED);
         enr.setCourseId(testCourse.getId());
+        enr.setTenantId(auth.tenantId());
         enrollmentRepository.save(enr);
 
         PlaybackSession expiredSession = new PlaybackSession(
@@ -284,6 +288,7 @@ public class LearningAndVideoDeliveryIntegrationTests {
 
         Enrollment enr = new Enrollment("ENR-TEST-" + UUID.randomUUID().toString().substring(0, 6), auth.userId(), testCohort.getId(), EnrollmentStatus.ENROLLED);
         enr.setCourseId(testCourse.getId());
+        enr.setTenantId(auth.tenantId());
         enrollmentRepository.save(enr);
 
         // Valid checkpoint
@@ -321,6 +326,7 @@ public class LearningAndVideoDeliveryIntegrationTests {
 
         Enrollment enr = new Enrollment("ENR-TEST-" + UUID.randomUUID().toString().substring(0, 6), auth.userId(), testCohort.getId(), EnrollmentStatus.ENROLLED);
         enr.setCourseId(testCourse.getId());
+        enr.setTenantId(auth.tenantId());
         enrollmentRepository.save(enr);
 
         String idempKey = "idemp_test_" + UUID.randomUUID();
@@ -352,6 +358,7 @@ public class LearningAndVideoDeliveryIntegrationTests {
 
         Enrollment enr = new Enrollment("ENR-TEST-" + UUID.randomUUID().toString().substring(0, 6), auth.userId(), testCohort.getId(), EnrollmentStatus.ENROLLED);
         enr.setCourseId(testCourse.getId());
+        enr.setTenantId(auth.tenantId());
         enrollmentRepository.save(enr);
 
         // Mark lesson 1 complete
@@ -380,6 +387,7 @@ public class LearningAndVideoDeliveryIntegrationTests {
         // Enroll at Program level (no direct courseId set on enrollment)
         Enrollment progEnr = new Enrollment("ENR-PROG-" + UUID.randomUUID().toString().substring(0, 6), auth.userId(), testCohort.getId(), EnrollmentStatus.ENROLLED);
         progEnr.setProgramId(prog.getId());
+        progEnr.setTenantId(auth.tenantId());
         enrollmentRepository.save(progEnr);
 
         // Query program courses

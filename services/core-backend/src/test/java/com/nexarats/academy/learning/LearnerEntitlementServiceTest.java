@@ -148,6 +148,14 @@ public class LearnerEntitlementServiceTest {
     }
 
     @Test
+    @DisplayName("Request without tenant context is rejected with 400 Bad Request")
+    void testMissingTenantContextRejected() {
+        assertThatThrownBy(() -> entitlementService.verifyCourseEntitlement(learnerUserId, courseId, null))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("Tenant context is required");
+    }
+
+    @Test
     @DisplayName("Unauthenticated request without learner ID is rejected with 401 Unauthorized")
     void testUnauthenticatedAccessRejected() {
         assertThatThrownBy(() -> entitlementService.verifyCourseEntitlement(null, courseId, tenantId))

@@ -67,8 +67,8 @@ public class LearnerDashboardService {
 
     @Transactional(readOnly = true)
     public LearnerDashboardResponse getDashboard(UUID learnerUserId, UUID tenantId) {
-        if (learnerUserId == null) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User must be authenticated to access dashboard.");
+        if (learnerUserId == null || tenantId == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User and tenant authentication context are required to access dashboard.");
         }
 
         User user = userRepository.findById(learnerUserId)
@@ -114,8 +114,7 @@ public class LearnerDashboardService {
             Course course = courseOpt.get();
 
             Optional<LearnerCourseProgress> progressOpt = courseProgressRepository
-                    .findByLearnerUserIdAndCourseIdAndEnrollmentId(learnerUserId, courseId, enrollment.getId())
-                    .or(() -> courseProgressRepository.findFirstByLearnerUserIdAndCourseIdOrderByLastActivityAtDesc(learnerUserId, courseId));
+                    .findByLearnerUserIdAndCourseIdAndEnrollmentId(learnerUserId, courseId, enrollment.getId());
 
             int totalLessons = 0;
             CurriculumVersion version = course.getPublishedVersion();
@@ -126,7 +125,7 @@ public class LearnerDashboardService {
             }
 
             long completedLessons = lessonProgressRepository
-                    .countByLearnerUserIdAndCourseIdAndIsCompletedTrue(learnerUserId, courseId);
+                    .countByLearnerUserIdAndCourseIdAndEnrollmentIdAndIsCompletedTrue(learnerUserId, courseId, enrollment.getId());
 
             int pct = progressOpt.map(LearnerCourseProgress::getCompletionPercentage).orElse(0);
             if (totalLessons > 0) {
@@ -183,9 +182,6 @@ public class LearnerDashboardService {
                 if (targetLesson != null) {
                     Optional<LearnerLessonProgress> lpOpt = lessonProgressRepository
                             .findByLearnerUserIdAndLessonIdAndEnrollmentId(learnerUserId, targetLesson.getId(), enrollment.getId());
-                    if (lpOpt.isEmpty()) {
-                        lpOpt = lessonProgressRepository.findFirstByLearnerUserIdAndLessonIdOrderByLastActivityAtDesc(learnerUserId, targetLesson.getId());
-                    }
                     int resumePos = lpOpt.map(LearnerLessonProgress::getLastPlaybackPositionSeconds).orElse(0);
 
                     continueTarget = new LearnerDashboardResponse.ContinueLearningTarget(
