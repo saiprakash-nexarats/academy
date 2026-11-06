@@ -27,7 +27,9 @@ import com.nexarats.academy.identity.service.AuthService;
 import com.nexarats.academy.identity.service.RateLimitingService;
 import com.nexarats.academy.learning.dto.PlaybackCheckpointRequest;
 import com.nexarats.academy.learning.dto.PlaybackSessionResponse;
+import com.nexarats.academy.learning.model.LearnerLessonProgress;
 import com.nexarats.academy.learning.model.PlaybackSession;
+import com.nexarats.academy.learning.repository.LearnerLessonProgressRepository;
 import com.nexarats.academy.learning.repository.PlaybackSessionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -95,6 +97,9 @@ public class LearningAndVideoDeliveryIntegrationTests {
 
     @Autowired
     private PlaybackSessionRepository playbackSessionRepository;
+
+    @Autowired
+    private LearnerLessonProgressRepository progressRepository;
 
     @Autowired
     private RateLimitingService rateLimitingService;
@@ -360,6 +365,13 @@ public class LearningAndVideoDeliveryIntegrationTests {
         enr.setCourseId(testCourse.getId());
         enr.setTenantId(auth.tenantId());
         enrollmentRepository.save(enr);
+
+        // Record sufficient watch time (>= 80%) for the video lesson
+        LearnerLessonProgress prog = new LearnerLessonProgress(auth.userId(), enr.getId(), testCourse.getId(), testLesson.getId());
+        prog.setTenantId(auth.tenantId());
+        int durSec = testLesson.getDurationMinutes() > 0 ? testLesson.getDurationMinutes() * 60 : 600;
+        prog.setWatchTimeSeconds((int) (durSec * 0.9));
+        progressRepository.save(prog);
 
         // Mark lesson 1 complete
         mockMvc.perform(post("/api/v1/learning/lessons/" + testLesson.getId() + "/complete")
