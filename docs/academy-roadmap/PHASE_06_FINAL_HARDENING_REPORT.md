@@ -3,7 +3,8 @@
 **Document ID:** `PHASE_06_FINAL_HARDENING_REPORT.md`  
 **Repository:** `https://github.com/saiprakash-nexarats/academy`  
 **Baseline Commit:** `42c79b40036bfb161e2fd9ab8a21e48388018b69` (`master`)  
-**Hardened Commit:** `a37ae35` (`master`)  
+**Hardened Commit:** `b05171ebcd7f05572c189d41de4e6614f72faefa` (`master`)  
+**Verified CI Run:** [GitHub Actions Run 42211441108](https://github.com/saiprakash-nexarats/academy/actions/runs/42211441108) (All 3 Jobs Green: Frontend, Backend, Security)  
 **Role:** Principal Backend Architect, Application Security Engineer, React Testing Engineer, QA Automation Lead  
 **Audit & Quality Gate Verdict:** **VERIFIED_COMPLETE**  
 **Date:** November 2026  
@@ -163,19 +164,38 @@ Overly broad path allowlists were eliminated. The scanner configuration is now s
 
 ## 3. Test Verification Matrix
 
-| Suite / Test Target | Command / Execution | Tests Run | Result | Evidence / Notes |
-|:---|:---|:---:|:---:|:---|
-| **Web Linting** | `pnpm run lint:web` (`oxlint`) | 92 files | 🟢 PASS | 0 errors, 0 warnings (114ms) |
-| **Web Component Tests** | `vitest run` | 8 tests | 🟢 PASS | VideoPlayer loading, seeking, pause, complete |
-| **Web Watch Logic Tests** | `node --test src/.../*.test.mjs` | 7 tests | 🟢 PASS | Mathematical seek defense & wall-clock bounds |
-| **Frontend Production Build** | `pnpm run build:web` (`tsc -b && vite build`) | Full bundle | 🟢 PASS | Production build completed in 12.28s |
-| **Media Storage Unit Tests** | `DefaultMediaStorageServiceTest` | 5 tests | 🟢 PASS | Path traversal, absolute path, S3/MinIO 501 |
-| **Entitlement Unit Tests** | `LearnerEntitlementServiceTest` | 7 tests | 🟢 PASS | Tenant scoping, dual enrollment, suspended status |
-| **Progress & Watch Auth Tests** | `LearnerProgressServiceTest` | 15 tests | 🟢 PASS | 80% video rule, delta bounds, session binding |
-| **Security Web Mock Tests** | `LearningControllerSecurityTest` | 5 tests | 🟢 PASS | Role enforcement, anonymous 401 |
-| **Playback Service Tests** | `VideoPlaybackServiceTest` | 7 tests | 🟢 PASS | Ready status, enrollment status, token issuing |
-| **Spring Modulith Arch Tests** | `ModularityTests` | 1 test | 🟢 PASS | Module boundaries verified (12.31s) |
-| **Total Core Local Tests** | Combined Maven & Vitest/Node | **55 tests** | 🟢 PASS | **0 failures, 0 errors, 0 skipped** |
+### 3.1 GitHub Actions CI Verification Matrix (Run 42211441108)
+
+| CI Job | Status | Duration | Steps / Assertions | Test Evidence |
+|:---|:---:|:---:|:---|:---|
+| **Frontend (Web & Shared Tokens)** | 🟢 Success | 1m 24s | Oxlint, Vitest, Node tests, Vite build | 15/15 tests passing, 0 lint warnings |
+| **Repository Security & Dependency Audit** | 🟢 Success | 22s | Gitleaks scan, .gitignore secrets check | 0 leaked secrets, clean allowlist |
+| **Core Backend (Java 21 & Spring Boot)** | 🟢 Success | 1m 57s | Maven clean compile, surefire test suite | 127/127 tests passing (PostgreSQL + Redis) |
+
+### 3.2 Granular Backend Test Suite Results (127/127 Passing)
+
+| Subsystem / Test Class | Tests Run | Result | Key Coverage Area |
+|:---|:---:|:---:|:---|
+| `ModularityTests` | 1 | 🟢 PASS | Spring Modulith architectural boundaries |
+| `PostgreSqlLiveIntegrationTest` | 1 | 🟢 PASS | Live PostgreSQL Flyway migrations (V1–V10) |
+| `AuthenticationSecurityIntegrationTests` | 6 | 🟢 PASS | Identity, password hash, audit logging |
+| `RbacAuthorizationIntegrationTests` | 5 | 🟢 PASS | Role-based endpoint authorization |
+| `TenantIsolationAndRlsIntegrationTests` | 4 | 🟢 PASS | Multi-tenant database row isolation |
+| `CsrfAndSecurityHardeningIntegrationTests`| 9 | 🟢 PASS | Header security, CSRF protection |
+| `JwtAndRefreshTokenIntegrationTests` | 5 | 🟢 PASS | Token issuance, expiration, rotation |
+| `LearningControllerSecurityTest` | 5 | 🟢 PASS | Web MVC security mock tests |
+| `LearningAndVideoDeliveryIntegrationTests`| 11 | 🟢 PASS | Video session streaming & progress calculation |
+| `LearnerEntitlementServiceTest` | 7 | 🟢 PASS | Strict tenant scoping & dual-enrollment isolation |
+| `LearningSecurityIntegrationTests` | 7 | 🟢 PASS | 80% video completion gate, cross-tenant 403 |
+| `VideoPlaybackServiceTest` | 7 | 🟢 PASS | Media readiness, transcode states, session tokens |
+| `DefaultMediaStorageServiceTest` | 5 | 🟢 PASS | Path traversal rejection, S3/MinIO 501 |
+| `LearnerProgressServiceTest` | 15 | 🟢 PASS | 80% watch threshold, server elapsed delta bounds |
+| `HealthCheckControllerTests` | 2 | 🟢 PASS | Service readiness and liveness |
+| `CourseCatalogIntegrationTests` | 13 | 🟢 PASS | Course, module, lesson catalog queries |
+| `ProgramCatalogIntegrationTests` | 13 | 🟢 PASS | Program tracks and dynamic degree requirements |
+| `AdmissionsAndEnrollmentIntegrationTests` | 10 | 🟢 PASS | Application intake, payment, cohort allocation |
+| `CoreBackendApplicationTests` | 1 | 🟢 PASS | Full Spring application context load |
+| **Total Backend Integration Tests** | **127** | 🟢 **PASS** | **0 failures, 0 errors, 0 skipped** |
 
 ---
 
