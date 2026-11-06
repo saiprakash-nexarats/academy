@@ -118,6 +118,7 @@ export interface PlaybackCheckpointRequest {
   playbackPositionSeconds: number;
   watchTimeDeltaSeconds: number;
   idempotencyKey?: string;
+  sessionToken?: string;
 }
 
 export interface PlaybackCheckpointResponse {

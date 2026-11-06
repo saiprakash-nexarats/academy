@@ -14,10 +14,12 @@ import com.nexarats.academy.learning.model.LearnerCourseProgress;
 import com.nexarats.academy.learning.model.LearnerLessonProgress;
 import com.nexarats.academy.learning.model.LearningActivityRecord;
 import com.nexarats.academy.learning.model.LessonMediaAsset;
+import com.nexarats.academy.learning.model.PlaybackSession;
 import com.nexarats.academy.learning.repository.LearnerCourseProgressRepository;
 import com.nexarats.academy.learning.repository.LearnerLessonProgressRepository;
 import com.nexarats.academy.learning.repository.LearningActivityRecordRepository;
 import com.nexarats.academy.learning.repository.LessonMediaAssetRepository;
+import com.nexarats.academy.learning.repository.PlaybackSessionRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -25,6 +27,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
 
@@ -38,6 +41,7 @@ public class LearnerProgressService {
     private final LearnerLessonProgressRepository lessonProgressRepository;
     private final LearningActivityRecordRepository activityRecordRepository;
     private final LessonMediaAssetRepository mediaAssetRepository;
+    private final PlaybackSessionRepository playbackSessionRepository;
     private final CourseRepository courseRepository;
 
     public LearnerProgressService(LearnerEntitlementService entitlementService,
@@ -45,12 +49,14 @@ public class LearnerProgressService {
                                   LearnerLessonProgressRepository lessonProgressRepository,
                                   LearningActivityRecordRepository activityRecordRepository,
                                   LessonMediaAssetRepository mediaAssetRepository,
+                                  PlaybackSessionRepository playbackSessionRepository,
                                   CourseRepository courseRepository) {
         this.entitlementService = entitlementService;
         this.courseProgressRepository = courseProgressRepository;
         this.lessonProgressRepository = lessonProgressRepository;
         this.activityRecordRepository = activityRecordRepository;
         this.mediaAssetRepository = mediaAssetRepository;
+        this.playbackSessionRepository = playbackSessionRepository;
         this.courseRepository = courseRepository;
     }
 
@@ -78,26 +84,25 @@ public class LearnerProgressService {
                     return courseProgressRepository.save(created);
                 });
 
-        // Compute lesson progress items
-        List<LearnerLessonProgress> existingLessonProgs = lessonProgressRepository
-                .findByLearnerUserIdAndCourseIdAndEnrollmentId(learnerUserId, courseId, enrollment.getId());
+        List<LearnerLessonProgress> lessonProgs = lessonProgressRepository.findByLearnerUserIdAndCourseIdAndEnrollmentId(learnerUserId, courseId, enrollment.getId());
         Map<UUID, LearnerLessonProgress> progressByLessonId = new HashMap<>();
-        for (LearnerLessonProgress lp : existingLessonProgs) {
+        for (LearnerLessonProgress lp : lessonProgs) {
             progressByLessonId.put(lp.getLessonId(), lp);
         }
 
         List<LearnerSyllabusResponse.LearnerLessonDto> dtoList = new ArrayList<>();
         int totalLessons = 0;
-        int completedLessons = 0;
+        int completedCount = 0;
 
-        for (CurriculumModule module : version.getModules()) {
-            for (Lesson l : module.getLessons()) {
+        for (CurriculumModule mod : version.getModules()) {
+            for (Lesson l : mod.getLessons()) {
                 totalLessons++;
                 LearnerLessonProgress lp = progressByLessonId.get(l.getId());
-                boolean isCompleted = lp != null && lp.isCompleted();
-                if (isCompleted) {
-                    completedLessons++;
-                }
+                boolean completed = lp != null && lp.isCompleted();
+                if (completed) completedCount++;
+
+                int pos = lp != null ? lp.getLastPlaybackPositionSeconds() : 0;
+                int watch = lp != null ? lp.getWatchTimeSeconds() : 0;
 
                 LearnerSyllabusResponse.LearnerLessonDto dto = new LearnerSyllabusResponse.LearnerLessonDto();
                 dto.setLessonId(l.getId());
@@ -108,35 +113,32 @@ public class LearnerProgressService {
                 dto.setDisplayOrder(l.getDisplayOrder());
                 dto.setPreviewable(l.isPreviewable());
                 dto.setLocked(false);
-                dto.setCompleted(isCompleted);
-                dto.setLastPlaybackPositionSeconds(lp != null ? lp.getLastPlaybackPositionSeconds() : 0);
-                dto.setWatchTimeSeconds(lp != null ? lp.getWatchTimeSeconds() : 0);
+                dto.setCompleted(completed);
+                dto.setLastPlaybackPositionSeconds(pos);
+                dto.setWatchTimeSeconds(watch);
                 dtoList.add(dto);
             }
         }
 
-        int calculatedPercentage = totalLessons > 0 ? (int) ((completedLessons * 100L) / totalLessons) : 0;
-        if (courseProg.getCompletionPercentage() != calculatedPercentage) {
-            courseProg.setCompletionPercentage(calculatedPercentage);
-            if (calculatedPercentage == 100 && courseProg.getCompletedAt() == null) {
-                courseProg.setStatus("COMPLETED");
-                courseProg.setCompletedAt(Instant.now());
-            }
-            courseProgressRepository.save(courseProg);
+        int percentage = totalLessons > 0 ? (int) ((completedCount * 100L) / totalLessons) : 0;
+        courseProg.setCompletionPercentage(percentage);
+        if (percentage == 100 && courseProg.getCompletedAt() == null) {
+            courseProg.setStatus("COMPLETED");
+            courseProg.setCompletedAt(Instant.now());
         }
+        courseProgressRepository.save(courseProg);
 
         CourseProgressResponse resp = new CourseProgressResponse();
-        resp.setCourseId(courseId);
+        resp.setCourseId(course.getId());
         resp.setCourseTitle(course.getTitle());
         resp.setEnrollmentStatus(enrollment.getStatus().name());
         resp.setCompletionPercentage(courseProg.getCompletionPercentage());
-        resp.setCompletedLessonsCount(completedLessons);
+        resp.setCompletedLessonsCount(completedCount);
         resp.setTotalLessonsCount(totalLessons);
         resp.setCurrentLessonId(courseProg.getCurrentLessonId());
         resp.setStatus(courseProg.getStatus());
         resp.setCompletedAt(courseProg.getCompletedAt());
         resp.setLessonProgresses(dtoList);
-
         return resp;
     }
 
@@ -161,6 +163,55 @@ public class LearnerProgressService {
         Lesson lesson = le.lesson();
         Course course = le.course();
         Enrollment enrollment = le.enrollment();
+
+        int durationSeconds = lesson.getDurationMinutes() * 60;
+        Optional<LessonMediaAsset> mediaOpt = mediaAssetRepository.findFirstByLessonId(lessonId);
+        if (mediaOpt.isPresent() && mediaOpt.get().getDurationSeconds() > 0) {
+            durationSeconds = mediaOpt.get().getDurationSeconds();
+        }
+
+        // Validate playhead position boundary against duration
+        if (durationSeconds > 0 && request.getPlaybackPositionSeconds() > durationSeconds + 30) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Playback position cannot exceed lesson duration.");
+        }
+
+        // Session binding & server-side elapsed time limits
+        if (request.getSessionToken() != null && !request.getSessionToken().isBlank()) {
+            PlaybackSession session = playbackSessionRepository.findBySessionToken(request.getSessionToken())
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid playback session token."));
+
+            if (session.isExpired()) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Playback session token has expired.");
+            }
+            if (!session.getLearnerUserId().equals(learnerUserId)) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Playback session does not belong to the authenticated learner.");
+            }
+            if (!session.getLessonId().equals(lessonId)) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Playback session does not match requested lesson.");
+            }
+            if (session.getEnrollmentId() != null && enrollment.getId() != null && !session.getEnrollmentId().equals(enrollment.getId())) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Playback session does not match active enrollment.");
+            }
+
+            // Server-side elapsed time check:
+            // Ensure client does not fabricate a delta far larger than actual server-measured elapsed time.
+            Instant now = Instant.now();
+            Instant referenceTime = session.getLastHeartbeatAt() != null ? session.getLastHeartbeatAt() : session.getCreatedAt();
+            long elapsedServerSeconds = Math.max(1, Duration.between(referenceTime, now).getSeconds());
+
+            // Allow up to 2x playback speed plus network latency buffer (15 seconds)
+            long maxPermissibleDelta = (elapsedServerSeconds * 2) + 15;
+            if (request.getWatchTimeDeltaSeconds() > maxPermissibleDelta) {
+                log.warn("Fabricated watch time delta rejected for user {} on lesson {}: claimed {}s, server elapsed {}s (max permissible: {}s)",
+                        learnerUserId, lessonId, request.getWatchTimeDeltaSeconds(), elapsedServerSeconds, maxPermissibleDelta);
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Unrealistic watch time delta: claimed delta (" + request.getWatchTimeDeltaSeconds() +
+                        "s) exceeds server-verified elapsed session time (" + elapsedServerSeconds + "s).");
+            }
+
+            session.setLastHeartbeatAt(now);
+            playbackSessionRepository.save(session);
+        }
 
         // Check idempotency key to prevent replay attacks
         if (request.getIdempotencyKey() != null && !request.getIdempotencyKey().isBlank()) {
@@ -191,12 +242,6 @@ public class LearnerProgressService {
 
         lp.setLastPlaybackPositionSeconds(request.getPlaybackPositionSeconds());
         lp.setWatchTimeSeconds(lp.getWatchTimeSeconds() + request.getWatchTimeDeltaSeconds());
-
-        int durationSeconds = lesson.getDurationMinutes() * 60;
-        Optional<LessonMediaAsset> mediaOpt = mediaAssetRepository.findFirstByLessonId(lessonId);
-        if (mediaOpt.isPresent() && mediaOpt.get().getDurationSeconds() > 0) {
-            durationSeconds = mediaOpt.get().getDurationSeconds();
-        }
 
         // Completion policy: strictly governed by meaningful accumulated watch time (>= 80% duration).
         // Forward scrubbing/seeking playhead beyond 90% does NOT qualify for completion.
@@ -263,15 +308,35 @@ public class LearnerProgressService {
 
     @Transactional
     public PlaybackCheckpointResponse markLessonComplete(UUID learnerUserId, UUID lessonId) {
-        return markLessonComplete(learnerUserId, lessonId, null);
+        return markLessonComplete(learnerUserId, lessonId, null, Collections.emptyList());
     }
 
     @Transactional
     public PlaybackCheckpointResponse markLessonComplete(UUID learnerUserId, UUID lessonId, UUID tenantId) {
+        return markLessonComplete(learnerUserId, lessonId, tenantId, Collections.emptyList());
+    }
+
+    @Transactional
+    public PlaybackCheckpointResponse markLessonComplete(UUID learnerUserId, UUID lessonId, UUID tenantId, Collection<String> roles) {
         LearnerEntitlementService.LessonAndEntitlement le = entitlementService.verifyLessonEntitlement(learnerUserId, lessonId, tenantId);
         Lesson lesson = le.lesson();
         Course course = le.course();
         Enrollment enrollment = le.enrollment();
+
+        Optional<LessonMediaAsset> mediaOpt = mediaAssetRepository.findFirstByLessonId(lessonId);
+        boolean isVideoLesson = mediaOpt.isPresent() || "LECTURE".equalsIgnoreCase(lesson.getLessonType());
+
+        boolean isAdminOrInstructor = roles != null && roles.stream().anyMatch(r ->
+                r.equalsIgnoreCase("ROLE_SUPER_ADMIN") ||
+                r.equalsIgnoreCase("ROLE_ACADEMY_ADMIN") ||
+                r.equalsIgnoreCase("ROLE_ADMIN") ||
+                r.equalsIgnoreCase("ROLE_INSTRUCTOR")
+        );
+
+        int durationSeconds = lesson.getDurationMinutes() * 60;
+        if (mediaOpt.isPresent() && mediaOpt.get().getDurationSeconds() > 0) {
+            durationSeconds = mediaOpt.get().getDurationSeconds();
+        }
 
         LearnerLessonProgress lp = lessonProgressRepository
                 .findByLearnerUserIdAndLessonIdAndEnrollmentId(learnerUserId, lessonId, enrollment.getId())
@@ -281,6 +346,20 @@ public class LearnerProgressService {
                     created.setCurriculumVersionId(lesson.getModule().getVersion().getId());
                     return created;
                 });
+
+        // Enforce completion policies:
+        // Video lessons require verified viewing progress (>= 80% duration) unless bypassed by admin/instructor workflow
+        if (isVideoLesson && !isAdminOrInstructor) {
+            int requiredSeconds = (int) (durationSeconds * 0.80);
+            if (lp.getWatchTimeSeconds() < requiredSeconds) {
+                log.warn("Unauthorized video completion attempt for user {} on lesson {}: {}s watched out of {}s required",
+                        learnerUserId, lessonId, lp.getWatchTimeSeconds(), requiredSeconds);
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Video lesson completion requires at least 80% validated watch time (" +
+                        lp.getWatchTimeSeconds() + "s watched, " + requiredSeconds + "s required). " +
+                        "Viewing threshold cannot be bypassed.");
+            }
+        }
 
         lp.setCompleted(true);
         lp.setStatus("COMPLETED");

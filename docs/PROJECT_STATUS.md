@@ -13,12 +13,12 @@
 
 | Subsystem | Health Status | Key Metrics | Active Work Remaining |
 |:---|:---|:---|:---|
-| **Frontend (`apps/web`)** | 🟢 Healthy | 0 Lint Errors, 0 Build Errors, 7/7 Video Tests Passing | Student onboarding wizard, batch calendar |
-| **Core Backend (`services/core-backend`)** | 🟢 Healthy | 119/119 Tests Passing in CI (PostgreSQL + Redis) | Phase 6B student onboarding |
+| **Frontend (`apps/web`)** | 🟢 Healthy | 0 Lint Errors, 0 Build Errors, 15/15 Vitest & Node Tests Passing | Student onboarding wizard, batch calendar |
+| **Core Backend (`services/core-backend`)** | 🟢 Healthy | 119+ Tests Passing in CI (PostgreSQL + Redis), 40 Core Unit/Security/Modulith Tests Passing | Phase 6B student onboarding |
 | **Database Migrations** | 🟢 Verified | Flyway V1–V10 applied cleanly | V11 migration for student onboarding |
-| **Security & RBAC** | 🟢 Hardened | Spring Security Integration Tests, Strict Tenant Scoping | Fine-grained permission evaluations |
-| **Video Playback & Media** | 🟢 Hardened | `MediaStorageService`, Path Traversal Protected, RFC 7233 | Cloud MinIO/S3 transcode worker in Phase 14 |
-| **Progress Engine** | 🟢 Hardened | Watch-time $\ge 80\%$ completion, Dual-tenant isolation | Daily streak counters |
+| **Security & RBAC** | 🟢 Hardened | Spring Security Integration Tests, Strict Tenant Scoping, Session Token Binding | Fine-grained permission evaluations |
+| **Video Playback & Media** | 🟢 Hardened | `MediaStorageService`, Path Traversal Protected, RFC 7233, Server-Side Watch Delta Limits | Cloud MinIO/S3 transcode worker in Phase 14 |
+| **Progress Engine** | 🟢 Hardened | Video watch-time $\ge 80\%$ required for completion, Non-video manual completion, Dual-tenant isolation | Daily streak counters |
 
 ---
 

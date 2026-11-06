@@ -13,10 +13,12 @@ import com.nexarats.academy.learning.model.LearnerCourseProgress;
 import com.nexarats.academy.learning.model.LearnerLessonProgress;
 import com.nexarats.academy.learning.model.LearningActivityRecord;
 import com.nexarats.academy.learning.model.LessonMediaAsset;
+import com.nexarats.academy.learning.model.PlaybackSession;
 import com.nexarats.academy.learning.repository.LearnerCourseProgressRepository;
 import com.nexarats.academy.learning.repository.LearnerLessonProgressRepository;
 import com.nexarats.academy.learning.repository.LearningActivityRecordRepository;
 import com.nexarats.academy.learning.repository.LessonMediaAssetRepository;
+import com.nexarats.academy.learning.repository.PlaybackSessionRepository;
 import com.nexarats.academy.learning.service.LearnerEntitlementService;
 import com.nexarats.academy.learning.service.LearnerProgressService;
 import org.junit.jupiter.api.BeforeEach;
@@ -27,6 +29,9 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -54,6 +59,9 @@ public class LearnerProgressServiceTest {
     private LessonMediaAssetRepository mediaAssetRepository;
 
     @Mock
+    private PlaybackSessionRepository playbackSessionRepository;
+
+    @Mock
     private CourseRepository courseRepository;
 
     private LearnerProgressService progressService;
@@ -76,6 +84,7 @@ public class LearnerProgressServiceTest {
                 lessonProgressRepository,
                 activityRecordRepository,
                 mediaAssetRepository,
+                playbackSessionRepository,
                 courseRepository
         );
 
@@ -100,6 +109,7 @@ public class LearnerProgressServiceTest {
         lesson = new Lesson();
         lesson.setId(lessonId);
         lesson.setLessonTitle("Service Mesh & Istio");
+        lesson.setLessonType("LECTURE");
         lesson.setDurationMinutes(20); // 1200 seconds
         lesson.setModule(module);
 
@@ -108,6 +118,7 @@ public class LearnerProgressServiceTest {
         course.setPublishedVersion(version);
 
         enrollment = new Enrollment("ENR-TEST-200", learnerUserId, UUID.randomUUID(), EnrollmentStatus.ENROLLED);
+        enrollment.setId(UUID.randomUUID());
         enrollment.setTenantId(tenantId);
         enrollment.setCourseId(courseId);
 
@@ -165,7 +176,6 @@ public class LearnerProgressServiceTest {
         PlaybackCheckpointRequest request = new PlaybackCheckpointRequest(1150, 5, "seek_key_95");
         PlaybackCheckpointResponse response = progressService.recordCheckpoint(learnerUserId, lessonId, request, tenantId);
 
-        // Resume position is tracked at 1150s, but lesson is NOT completed
         assertThat(response.getLastPlaybackPositionSeconds()).isEqualTo(1150);
         assertThat(response.getWatchTimeSeconds()).isEqualTo(20); // 15 + 5
         assertThat(response.isLessonCompleted()).isFalse();
@@ -284,6 +294,179 @@ public class LearnerProgressServiceTest {
     }
 
     @Test
+    @DisplayName("Checkpoint bound to playback session validates session ownership and server elapsed time")
+    void testCheckpointBoundToSessionValidatesSessionAndHeartbeat() {
+        when(entitlementService.verifyLessonEntitlement(learnerUserId, lessonId, tenantId))
+                .thenReturn(new LearnerEntitlementService.LessonAndEntitlement(lesson, course, enrollment));
+        when(activityRecordRepository.findByIdempotencyKey(any())).thenReturn(Optional.empty());
+
+        // Session was active 10 seconds ago
+        PlaybackSession session = new PlaybackSession("valid_token_xyz", learnerUserId, enrollment.getId(), lessonId, mediaAsset.getId(), Instant.now().plus(1, ChronoUnit.HOURS));
+        session.setLastHeartbeatAt(Instant.now().minus(10, ChronoUnit.SECONDS));
+        when(playbackSessionRepository.findBySessionToken("valid_token_xyz")).thenReturn(Optional.of(session));
+
+        LearnerLessonProgress lp = new LearnerLessonProgress(learnerUserId, enrollment.getId(), courseId, lessonId);
+        when(lessonProgressRepository.findByLearnerUserIdAndLessonIdAndEnrollmentId(learnerUserId, lessonId, enrollment.getId()))
+                .thenReturn(Optional.of(lp));
+        when(lessonProgressRepository.save(any(LearnerLessonProgress.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LearnerCourseProgress courseProg = new LearnerCourseProgress(learnerUserId, enrollment.getId(), courseId, tenantId);
+        when(courseProgressRepository.findByLearnerUserIdAndCourseIdAndEnrollmentId(learnerUserId, courseId, enrollment.getId()))
+                .thenReturn(Optional.of(courseProg));
+        when(mediaAssetRepository.findFirstByLessonId(lessonId)).thenReturn(Optional.of(mediaAsset));
+
+        // Submitting reasonable delta: 10s watch delta after 10s elapsed
+        PlaybackCheckpointRequest request = new PlaybackCheckpointRequest(10, 10, "session_chk_1", "valid_token_xyz");
+        PlaybackCheckpointResponse response = progressService.recordCheckpoint(learnerUserId, lessonId, request, tenantId);
+
+        assertThat(response.getLastPlaybackPositionSeconds()).isEqualTo(10);
+        assertThat(response.getWatchTimeSeconds()).isEqualTo(10);
+        verify(playbackSessionRepository).save(session);
+    }
+
+    @Test
+    @DisplayName("Fabricated checkpoint delta far exceeding server elapsed time is rejected with 400 Bad Request")
+    void testFabricatedCheckpointDeltaRejected() {
+        when(entitlementService.verifyLessonEntitlement(learnerUserId, lessonId, tenantId))
+                .thenReturn(new LearnerEntitlementService.LessonAndEntitlement(lesson, course, enrollment));
+
+        // Session heartbeat was only 2 seconds ago
+        PlaybackSession session = new PlaybackSession("valid_token_xyz", learnerUserId, enrollment.getId(), lessonId, mediaAsset.getId(), Instant.now().plus(1, ChronoUnit.HOURS));
+        session.setLastHeartbeatAt(Instant.now().minus(2, ChronoUnit.SECONDS));
+        when(playbackSessionRepository.findBySessionToken("valid_token_xyz")).thenReturn(Optional.of(session));
+        when(mediaAssetRepository.findFirstByLessonId(lessonId)).thenReturn(Optional.of(mediaAsset));
+
+        // Client falsely claims 60s watch delta in 2 seconds of server time
+        PlaybackCheckpointRequest request = new PlaybackCheckpointRequest(60, 60, "cheat_key_1", "valid_token_xyz");
+
+        assertThatThrownBy(() -> progressService.recordCheckpoint(learnerUserId, lessonId, request, tenantId))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("exceeds server-verified elapsed session time");
+    }
+
+    @Test
+    @DisplayName("Checkpoint with session belonging to different user is rejected with 403 Forbidden")
+    void testCheckpointSessionBelongingToDifferentUserRejected() {
+        when(entitlementService.verifyLessonEntitlement(learnerUserId, lessonId, tenantId))
+                .thenReturn(new LearnerEntitlementService.LessonAndEntitlement(lesson, course, enrollment));
+
+        UUID otherUser = UUID.randomUUID();
+        PlaybackSession session = new PlaybackSession("stolen_token", otherUser, enrollment.getId(), lessonId, mediaAsset.getId(), Instant.now().plus(1, ChronoUnit.HOURS));
+        when(playbackSessionRepository.findBySessionToken("stolen_token")).thenReturn(Optional.of(session));
+        when(mediaAssetRepository.findFirstByLessonId(lessonId)).thenReturn(Optional.of(mediaAsset));
+
+        PlaybackCheckpointRequest request = new PlaybackCheckpointRequest(10, 5, "stolen_chk", "stolen_token");
+
+        assertThatThrownBy(() -> progressService.recordCheckpoint(learnerUserId, lessonId, request, tenantId))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("Playback session does not belong to the authenticated learner");
+    }
+
+    @Test
+    @DisplayName("Explicit completion of video lesson WITHOUT 80% watch time is rejected with 400 Bad Request")
+    void testExplicitVideoCompletionWithoutSufficientWatchTimeRejected() {
+        when(entitlementService.verifyLessonEntitlement(learnerUserId, lessonId, tenantId))
+                .thenReturn(new LearnerEntitlementService.LessonAndEntitlement(lesson, course, enrollment));
+        when(mediaAssetRepository.findFirstByLessonId(lessonId)).thenReturn(Optional.of(mediaAsset));
+
+        // User only watched 200s out of 1200s (required 960s)
+        LearnerLessonProgress lp = new LearnerLessonProgress(learnerUserId, enrollment.getId(), courseId, lessonId);
+        lp.setWatchTimeSeconds(200);
+        when(lessonProgressRepository.findByLearnerUserIdAndLessonIdAndEnrollmentId(learnerUserId, lessonId, enrollment.getId()))
+                .thenReturn(Optional.of(lp));
+
+        // Regular student role attempts to mark video lesson complete
+        assertThatThrownBy(() -> progressService.markLessonComplete(learnerUserId, lessonId, tenantId, List.of("ROLE_STUDENT")))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("Video lesson completion requires at least 80% validated watch time");
+    }
+
+    @Test
+    @DisplayName("Explicit completion of video lesson WITH >= 80% watch time succeeds")
+    void testExplicitVideoCompletionWithSufficientWatchTimeSucceeds() {
+        when(entitlementService.verifyLessonEntitlement(learnerUserId, lessonId, tenantId))
+                .thenReturn(new LearnerEntitlementService.LessonAndEntitlement(lesson, course, enrollment));
+        when(mediaAssetRepository.findFirstByLessonId(lessonId)).thenReturn(Optional.of(mediaAsset));
+
+        // User watched 1000s out of 1200s (threshold 960s)
+        LearnerLessonProgress lp = new LearnerLessonProgress(learnerUserId, enrollment.getId(), courseId, lessonId);
+        lp.setWatchTimeSeconds(1000);
+        when(lessonProgressRepository.findByLearnerUserIdAndLessonIdAndEnrollmentId(learnerUserId, lessonId, enrollment.getId()))
+                .thenReturn(Optional.of(lp));
+        when(lessonProgressRepository.save(any(LearnerLessonProgress.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LearnerCourseProgress courseProg = new LearnerCourseProgress(learnerUserId, enrollment.getId(), courseId, tenantId);
+        when(courseProgressRepository.findByLearnerUserIdAndCourseIdAndEnrollmentId(learnerUserId, courseId, enrollment.getId()))
+                .thenReturn(Optional.of(courseProg));
+        when(lessonProgressRepository.countByLearnerUserIdAndCourseIdAndEnrollmentIdAndIsCompletedTrue(learnerUserId, courseId, enrollment.getId()))
+                .thenReturn(1L);
+
+        PlaybackCheckpointResponse response = progressService.markLessonComplete(learnerUserId, lessonId, tenantId, List.of("ROLE_STUDENT"));
+
+        assertThat(response.isLessonCompleted()).isTrue();
+        assertThat(response.getLessonCompletionPercentage()).isEqualTo(100);
+        verify(activityRecordRepository).save(any(LearningActivityRecord.class));
+    }
+
+    @Test
+    @DisplayName("Explicit completion of non-video reading lesson succeeds immediately for student")
+    void testExplicitNonVideoLessonCompletionSucceeds() {
+        Lesson readingLesson = new Lesson();
+        readingLesson.setId(lessonId);
+        readingLesson.setLessonTitle("Architecture Blueprint Reading");
+        readingLesson.setLessonType("EXERCISE");
+        readingLesson.setDurationMinutes(15);
+        readingLesson.setModule(lesson.getModule());
+
+        when(entitlementService.verifyLessonEntitlement(learnerUserId, lessonId, tenantId))
+                .thenReturn(new LearnerEntitlementService.LessonAndEntitlement(readingLesson, course, enrollment));
+        when(mediaAssetRepository.findFirstByLessonId(lessonId)).thenReturn(Optional.empty()); // No video asset!
+
+        LearnerLessonProgress lp = new LearnerLessonProgress(learnerUserId, enrollment.getId(), courseId, lessonId);
+        when(lessonProgressRepository.findByLearnerUserIdAndLessonIdAndEnrollmentId(learnerUserId, lessonId, enrollment.getId()))
+                .thenReturn(Optional.of(lp));
+        when(lessonProgressRepository.save(any(LearnerLessonProgress.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LearnerCourseProgress courseProg = new LearnerCourseProgress(learnerUserId, enrollment.getId(), courseId, tenantId);
+        when(courseProgressRepository.findByLearnerUserIdAndCourseIdAndEnrollmentId(learnerUserId, courseId, enrollment.getId()))
+                .thenReturn(Optional.of(courseProg));
+        when(lessonProgressRepository.countByLearnerUserIdAndCourseIdAndEnrollmentIdAndIsCompletedTrue(learnerUserId, courseId, enrollment.getId()))
+                .thenReturn(1L);
+
+        PlaybackCheckpointResponse response = progressService.markLessonComplete(learnerUserId, lessonId, tenantId, List.of("ROLE_STUDENT"));
+
+        assertThat(response.isLessonCompleted()).isTrue();
+        assertThat(response.getLessonCompletionPercentage()).isEqualTo(100);
+    }
+
+    @Test
+    @DisplayName("Admin workflow override permits completing video lesson even under 80% watch time")
+    void testAdminBypassPermitsVideoCompletion() {
+        when(entitlementService.verifyLessonEntitlement(learnerUserId, lessonId, tenantId))
+                .thenReturn(new LearnerEntitlementService.LessonAndEntitlement(lesson, course, enrollment));
+        when(mediaAssetRepository.findFirstByLessonId(lessonId)).thenReturn(Optional.of(mediaAsset));
+
+        // User watched 0s
+        LearnerLessonProgress lp = new LearnerLessonProgress(learnerUserId, enrollment.getId(), courseId, lessonId);
+        lp.setWatchTimeSeconds(0);
+        when(lessonProgressRepository.findByLearnerUserIdAndLessonIdAndEnrollmentId(learnerUserId, lessonId, enrollment.getId()))
+                .thenReturn(Optional.of(lp));
+        when(lessonProgressRepository.save(any(LearnerLessonProgress.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LearnerCourseProgress courseProg = new LearnerCourseProgress(learnerUserId, enrollment.getId(), courseId, tenantId);
+        when(courseProgressRepository.findByLearnerUserIdAndCourseIdAndEnrollmentId(learnerUserId, courseId, enrollment.getId()))
+                .thenReturn(Optional.of(courseProg));
+        when(lessonProgressRepository.countByLearnerUserIdAndCourseIdAndEnrollmentIdAndIsCompletedTrue(learnerUserId, courseId, enrollment.getId()))
+                .thenReturn(1L);
+
+        // Admin workflow
+        PlaybackCheckpointResponse response = progressService.markLessonComplete(learnerUserId, lessonId, tenantId, List.of("ROLE_ACADEMY_ADMIN"));
+
+        assertThat(response.isLessonCompleted()).isTrue();
+        assertThat(response.getLessonCompletionPercentage()).isEqualTo(100);
+    }
+
+    @Test
     @DisplayName("Checkpoint with negative playback position is rejected with 400 Bad Request")
     void testNegativePlaybackPositionRejected() {
         PlaybackCheckpointRequest request = new PlaybackCheckpointRequest(-10, 15, "neg_key");
@@ -299,30 +482,5 @@ public class LearnerProgressServiceTest {
         assertThatThrownBy(() -> progressService.recordCheckpoint(learnerUserId, lessonId, request, tenantId))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("Unrealistic watch time delta");
-    }
-
-    @Test
-    @DisplayName("Explicit lesson completion marks lesson completed and updates course percentage")
-    void testExplicitLessonComplete() {
-        when(entitlementService.verifyLessonEntitlement(learnerUserId, lessonId, tenantId))
-                .thenReturn(new LearnerEntitlementService.LessonAndEntitlement(lesson, course, enrollment));
-
-        LearnerLessonProgress lp = new LearnerLessonProgress(learnerUserId, enrollment.getId(), courseId, lessonId);
-        when(lessonProgressRepository.findByLearnerUserIdAndLessonIdAndEnrollmentId(learnerUserId, lessonId, enrollment.getId()))
-                .thenReturn(Optional.of(lp));
-        when(lessonProgressRepository.save(any(LearnerLessonProgress.class))).thenAnswer(inv -> inv.getArgument(0));
-
-        LearnerCourseProgress courseProg = new LearnerCourseProgress(learnerUserId, enrollment.getId(), courseId, tenantId);
-        when(courseProgressRepository.findByLearnerUserIdAndCourseIdAndEnrollmentId(learnerUserId, courseId, enrollment.getId()))
-                .thenReturn(Optional.of(courseProg));
-        when(lessonProgressRepository.countByLearnerUserIdAndCourseIdAndEnrollmentIdAndIsCompletedTrue(learnerUserId, courseId, enrollment.getId()))
-                .thenReturn(1L);
-
-        PlaybackCheckpointResponse response = progressService.markLessonComplete(learnerUserId, lessonId, tenantId);
-
-        assertThat(response.isLessonCompleted()).isTrue();
-        assertThat(response.getLessonCompletionPercentage()).isEqualTo(100);
-        assertThat(response.getCourseCompletionPercentage()).isEqualTo(100);
-        verify(activityRecordRepository).save(any(LearningActivityRecord.class));
     }
 }

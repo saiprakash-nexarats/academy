@@ -108,6 +108,7 @@ export const CoursePlayerPage: React.FC = () => {
           playbackPositionSeconds: positionSeconds,
           watchTimeDeltaSeconds: deltaSeconds,
           idempotencyKey: `chk_${activeLessonId}_${positionSeconds}_${Date.now()}`,
+          sessionToken: session?.sessionToken,
         },
         accessToken
       )

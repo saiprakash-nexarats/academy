@@ -48,10 +48,19 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [hasResumed, setHasResumed] = useState<boolean>(false)
   const [isBuffering, setIsBuffering] = useState<boolean>(false)
 
-  // Accurately decouple watch time duration from playback position
-  const accumulatedWatchSecondsRef = useRef<number>(0)
+  // Accurately decouple cumulative total watched time from unsubmitted checkpoint delta
+  const totalWatchSecondsRef = useRef<number>(0)
+  const unsubmittedDeltaSecondsRef = useRef<number>(0)
   const lastRealTimeRef = useRef<number>(0)
   const controlsTimeoutRef = useRef<number | null>(null)
+  const hasTriggeredCompleteRef = useRef<boolean>(isCompleted)
+
+  // Sync completion ref when prop changes
+  useEffect(() => {
+    if (isCompleted) {
+      hasTriggeredCompleteRef.current = true
+    }
+  }, [isCompleted])
 
   // Initialize playback position upon initial load
   useEffect(() => {
@@ -62,14 +71,29 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   }, [initialPositionSeconds, hasResumed])
 
-  // Active watch-time tracker: increments strictly while video is actively playing
+  // Flush unsubmitted checkpoint delta to parent callback
+  const flushCheckpoint = useCallback(() => {
+    if (!videoRef.current) return
+    const cur = Math.floor(videoRef.current.currentTime)
+    const watchDelta = Math.floor(unsubmittedDeltaSecondsRef.current)
+
+    if (watchDelta >= 1) {
+      const safeDelta = Math.min(300, watchDelta)
+      onCheckpoint(cur, safeDelta)
+      // Deduct flushed delta from unsubmitted accumulator (totalWatchSecondsRef remains intact!)
+      unsubmittedDeltaSecondsRef.current = Math.max(0, unsubmittedDeltaSecondsRef.current - watchDelta)
+    }
+  }, [onCheckpoint])
+
+  // Active watch-time tracker: increments strictly while video is actively playing and not buffering
   useEffect(() => {
-    if (!isPlaying) return
+    if (!isPlaying || isBuffering) return
 
     lastRealTimeRef.current = performance.now()
 
     const ticker = window.setInterval(() => {
-      if (!videoRef.current || videoRef.current.paused || videoRef.current.seeking) {
+      const video = videoRef.current
+      if (!video || video.paused || video.seeking || isBuffering) {
         lastRealTimeRef.current = performance.now()
         return
       }
@@ -78,28 +102,28 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       const elapsedRealSec = (now - lastRealTimeRef.current) / 1000
       lastRealTimeRef.current = now
 
-      // Safely clamp tick elapsed duration to avoid browser background-tab throttling bursts
+      // Safely clamp tick duration to avoid browser background-tab throttling bursts
       if (elapsedRealSec > 0 && elapsedRealSec <= 2) {
-        accumulatedWatchSecondsRef.current += elapsedRealSec
+        totalWatchSecondsRef.current += elapsedRealSec
+        unsubmittedDeltaSecondsRef.current += elapsedRealSec
+
+        // Auto-complete only when cumulative watch threshold (>= 80% duration) is reached
+        const total = duration || durationSeconds
+        if (
+          total > 0 &&
+          !isCompleted &&
+          !hasTriggeredCompleteRef.current &&
+          totalWatchSecondsRef.current >= total * 0.80
+        ) {
+          hasTriggeredCompleteRef.current = true
+          flushCheckpoint()
+          onComplete()
+        }
       }
-    }, 500)
+    }, 250)
 
     return () => clearInterval(ticker)
-  }, [isPlaying])
-
-  // Helper to submit accumulated watch time checkpoint
-  const flushCheckpoint = useCallback(() => {
-    if (!videoRef.current) return
-    const cur = Math.floor(videoRef.current.currentTime)
-    const watchDelta = Math.floor(accumulatedWatchSecondsRef.current)
-
-    if (watchDelta >= 1) {
-      // Clamped to backend boundary (<= 300s)
-      const safeDelta = Math.min(300, watchDelta)
-      onCheckpoint(cur, safeDelta)
-      accumulatedWatchSecondsRef.current = Math.max(0, accumulatedWatchSecondsRef.current - watchDelta)
-    }
-  }, [onCheckpoint])
+  }, [isPlaying, isBuffering, duration, durationSeconds, isCompleted, flushCheckpoint, onComplete])
 
   // Periodic progress checkpoint ticker (every 10 seconds of active playback)
   useEffect(() => {
@@ -131,7 +155,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     } else {
       videoRef.current.pause()
       setIsPlaying(false)
-      // Submit accumulated progress on pause
       flushCheckpoint()
     }
   }, [flushCheckpoint])
@@ -191,27 +214,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   const handleTimeUpdate = () => {
     if (!videoRef.current) return
-    const cur = videoRef.current.currentTime
-    setCurrentTime(cur)
-
-    // Accumulate real elapsed playing time (strictly ignoring seek jumps)
-    if (isPlaying && !videoRef.current.paused && !videoRef.current.seeking) {
-      const now = performance.now()
-      if (lastRealTimeRef.current > 0) {
-        const deltaSec = (now - lastRealTimeRef.current) / 1000
-        if (deltaSec > 0 && deltaSec < 5) {
-          accumulatedWatchSecondsRef.current += deltaSec
-        }
-      }
-      lastRealTimeRef.current = now
-    }
-
-    // Auto-complete only when meaningful cumulative watch time threshold (>= 80% duration) is reached
-    const total = duration || durationSeconds
-    if (total > 0 && !isCompleted && accumulatedWatchSecondsRef.current >= total * 0.80) {
-      flushCheckpoint()
-      onComplete()
-    }
+    setCurrentTime(videoRef.current.currentTime)
   }
 
   // Keyboard accessibility handler
@@ -227,28 +230,19 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
       if (isInput) return
 
-      // Space: Toggle Play/Pause
       if (e.code === 'Space') {
         e.preventDefault()
         togglePlay()
-      }
-      // ArrowLeft: Seek backward 5 seconds
-      else if (e.code === 'ArrowLeft') {
+      } else if (e.code === 'ArrowLeft') {
         e.preventDefault()
         seekBy(-5)
-      }
-      // ArrowRight: Seek forward 5 seconds
-      else if (e.code === 'ArrowRight') {
+      } else if (e.code === 'ArrowRight') {
         e.preventDefault()
         seekBy(5)
-      }
-      // KeyM: Toggle Mute
-      else if (e.code === 'KeyM') {
+      } else if (e.code === 'KeyM') {
         e.preventDefault()
         toggleMute()
-      }
-      // KeyF: Toggle Fullscreen
-      else if (e.code === 'KeyF') {
+      } else if (e.code === 'KeyF') {
         e.preventDefault()
         toggleFullscreen()
       }
@@ -319,20 +313,37 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           src={streamUrl}
           onTimeUpdate={handleTimeUpdate}
           onLoadedMetadata={() => {
-            if (videoRef.current) {
-              setDuration(videoRef.current.duration || durationSeconds)
+            if (videoRef.current && !Number.isNaN(videoRef.current.duration) && videoRef.current.duration > 0) {
+              setDuration(videoRef.current.duration)
             }
           }}
-          onWaiting={() => setIsBuffering(true)}
+          onSeeking={() => {
+            lastRealTimeRef.current = performance.now()
+          }}
+          onSeeked={() => {
+            lastRealTimeRef.current = performance.now()
+          }}
+          onWaiting={() => {
+            setIsBuffering(true)
+            lastRealTimeRef.current = performance.now()
+          }}
           onPlaying={() => {
             setIsBuffering(false)
             setIsPlaying(true)
+            lastRealTimeRef.current = performance.now()
           }}
-          onPause={() => setIsPlaying(false)}
+          onPause={() => {
+            setIsPlaying(false)
+            flushCheckpoint()
+          }}
           onEnded={() => {
             setIsPlaying(false)
             flushCheckpoint()
-            onComplete()
+            const total = duration || durationSeconds
+            if (!isCompleted && !hasTriggeredCompleteRef.current && totalWatchSecondsRef.current >= total * 0.80) {
+              hasTriggeredCompleteRef.current = true
+              onComplete()
+            }
           }}
           onClick={togglePlay}
           className="w-full h-full object-contain cursor-pointer"
@@ -363,51 +374,76 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         </div>
       )}
 
-      {/* Controls Overlay */}
+      {/* Big Center Play Button when Paused */}
+      {!isPlaying && streamUrl && (
+        <div
+          onClick={togglePlay}
+          className="absolute inset-0 flex items-center justify-center bg-black/20 cursor-pointer"
+        >
+          <div className="w-16 h-16 rounded-full bg-brand-600/90 hover:bg-brand-500 text-white flex items-center justify-center shadow-elevated transform group-hover:scale-105 transition-all">
+            <Play className="w-7 h-7 fill-white ml-1" />
+          </div>
+        </div>
+      )}
+
+      {/* Custom Control Bar Overlay */}
       <div
         className={cn(
-          'absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent p-4 transition-opacity duration-300 flex flex-col gap-2',
+          'absolute bottom-0 inset-x-0 bg-gradient-to-t from-slate-950/95 via-slate-950/60 to-transparent p-4 transition-opacity duration-300 flex flex-col gap-2',
           showControls || !isPlaying ? 'opacity-100' : 'opacity-0 pointer-events-none'
         )}
       >
-        {/* Scrubber Bar */}
-        <div className="flex items-center gap-2 w-full">
+        {/* Scrubber / Progress Slider */}
+        <div className="w-full flex items-center gap-2 group/scrub">
           <input
             type="range"
             min={0}
             max={duration || durationSeconds || 100}
-            step={0.5}
+            step={0.1}
             value={currentTime}
             onChange={handleSeekSlider}
-            aria-label="Seek video progress"
-            className="w-full h-1.5 bg-slate-700/80 rounded-lg appearance-none cursor-pointer accent-brand-500 hover:h-2 transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+            aria-label="Seek time scrubber"
+            className="w-full h-1.5 bg-slate-700/60 rounded-lg appearance-none cursor-pointer accent-brand-500 hover:h-2 transition-all"
           />
         </div>
 
-        {/* Action Controls Row */}
-        <div className="flex items-center justify-between text-white text-xs">
+        {/* Playback Controls Row */}
+        <div className="flex items-center justify-between text-xs font-medium text-slate-200">
           <div className="flex items-center gap-3">
-            {/* Play/Pause */}
             <button
               onClick={togglePlay}
-              aria-label={isPlaying ? 'Pause video (Space)' : 'Play video (Space)'}
-              className="p-1.5 hover:bg-white/10 rounded-full transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+              className="p-1 hover:text-white transition-colors cursor-pointer"
+              aria-label={isPlaying ? 'Pause video' : 'Play video'}
             >
-              {isPlaying ? <Pause className="w-5 h-5 fill-white" /> : <Play className="w-5 h-5 fill-white" />}
+              {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 fill-current" />}
             </button>
 
-            {/* Volume */}
-            <div className="flex items-center gap-1.5 group/vol">
+            <button
+              onClick={() => seekBy(-5)}
+              className="p-1 hover:text-white transition-colors cursor-pointer text-[10px] font-bold"
+              aria-label="Seek backward 5 seconds"
+              title="Seek -5s (Left Arrow)"
+            >
+              -5s
+            </button>
+
+            <button
+              onClick={() => seekBy(5)}
+              className="p-1 hover:text-white transition-colors cursor-pointer text-[10px] font-bold"
+              aria-label="Seek forward 5 seconds"
+              title="Seek +5s (Right Arrow)"
+            >
+              +5s
+            </button>
+
+            <div className="flex items-center gap-1 group/vol">
               <button
                 onClick={toggleMute}
-                aria-label={isMuted ? 'Unmute (M)' : 'Mute (M)'}
-                className="p-1.5 hover:bg-white/10 rounded-full transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+                className="p-1 hover:text-white transition-colors cursor-pointer"
+                aria-label={isMuted ? 'Unmute' : 'Mute'}
+                title="Mute / Unmute (M)"
               >
-                {isMuted || volume === 0 ? (
-                  <VolumeX className="w-4 h-4 text-slate-400" />
-                ) : (
-                  <Volume2 className="w-4 h-4 text-white" />
-                )}
+                {isMuted || volume === 0 ? <VolumeX className="w-4 h-4 text-rose-400" /> : <Volume2 className="w-4 h-4" />}
               </button>
               <input
                 type="range"
@@ -416,28 +452,28 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 step={0.05}
                 value={isMuted ? 0 : volume}
                 onChange={handleVolumeChange}
-                aria-label="Volume slider"
-                className="w-16 h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-brand-500 hidden group-hover/vol:block transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+                aria-label="Volume controller"
+                className="w-14 h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-brand-400"
               />
             </div>
 
-            {/* Time Stamp */}
-            <span className="font-mono text-[11px] text-slate-300">
+            <span className="text-[11px] text-slate-300 font-mono ml-2">
               {formatTime(currentTime)} / {formatTime(duration || durationSeconds)}
             </span>
           </div>
 
-          <div className="flex items-center gap-2">
-            {/* Speed Selector */}
-            <div className="flex items-center gap-1 bg-white/10 px-2 py-1 rounded-full text-[11px] font-semibold">
-              {[1, 1.25, 1.5, 2].map((rate) => (
+          <div className="flex items-center gap-3">
+            {/* Playback Speed Selector */}
+            <div className="flex items-center gap-1 bg-slate-900/80 px-2 py-0.5 rounded-md border border-slate-800">
+              {[0.75, 1, 1.25, 1.5, 2].map((rate) => (
                 <button
                   key={rate}
                   onClick={() => handleSpeedChange(rate)}
-                  aria-label={`Set speed to ${rate}x`}
                   className={cn(
-                    'px-1.5 py-0.5 rounded cursor-pointer transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-brand-400',
-                    playbackRate === rate ? 'bg-brand-600 text-white font-bold' : 'text-slate-400 hover:text-white'
+                    'px-1.5 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer',
+                    playbackRate === rate
+                      ? 'bg-brand-600 text-white'
+                      : 'text-slate-400 hover:text-white'
                   )}
                 >
                   {rate}x
@@ -445,13 +481,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               ))}
             </div>
 
-            {/* Fullscreen */}
             <button
               onClick={toggleFullscreen}
-              aria-label="Toggle fullscreen (F)"
-              className="p-1.5 hover:bg-white/10 rounded-full transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+              className="p-1 hover:text-white transition-colors cursor-pointer"
+              aria-label="Toggle Fullscreen"
+              title="Fullscreen (F)"
             >
-              <Maximize className="w-4 h-4 text-slate-300 hover:text-white" />
+              <Maximize className="w-4 h-4" />
             </button>
           </div>
         </div>

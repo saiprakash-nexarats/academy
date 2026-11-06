@@ -38,6 +38,9 @@ jobs:
       - name: Run Web Lint (oxlint)
         run: pnpm run lint:web
 
+      - name: Run Web Unit & Component Tests
+        run: pnpm run test:web
+
       - name: Verify Web Production Build (tsc + vite)
         run: pnpm run build:web
 
@@ -142,7 +145,6 @@ jobs:
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        continue-on-error: true
 
       - name: Verify Secret Exclusion (.gitignore check)
         run: |

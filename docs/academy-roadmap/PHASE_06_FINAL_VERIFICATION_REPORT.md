@@ -234,6 +234,7 @@ Executed against live containerized PostgreSQL 16 and Redis 7 in GitHub Actions 
 | `docs/PROJECT_STATUS.md` | Modified | Updated project status with Phase 6 final CI and security verification |
 | `docs/PHASE_PROGRESS.md` | Modified | Updated phase progress tracker |
 | `docs/academy-roadmap/PHASE_06_FINAL_VERIFICATION_REPORT.md` | New | Comprehensive verification report |
+| `docs/academy-roadmap/PHASE_06_FINAL_HARDENING_REPORT.md` | New | Supplementary hardening report covering playback authorization, session tokens, and Vitest suite |
 
 ---
 

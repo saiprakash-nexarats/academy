@@ -32,7 +32,7 @@
 - [x] **Phase 10 (Roadmap) / Git Phase 6: Student LMS Dashboard**
   - *Status:* **VERIFIED COMPLETE**. `/dashboard` and `/learning` interfaces, course and lesson progress, strict enrollment-level multi-tenant isolation.
 - [x] **Phase 11 (Roadmap) / Git Phase 6: Modular Curriculum Video Player & Progress**
-  - *Status:* **VERIFIED COMPLETE**. `MediaStorageService`, path traversal defense, RFC 7233 streaming, keyboard shortcuts, accurate watch-time accumulation ($\ge 80\%$ duration required for completion), 7 automated frontend tests passing.
+  - *Status:* **VERIFIED COMPLETE**. `MediaStorageService`, path traversal defense, RFC 7233 streaming, keyboard shortcuts, accurate watch-time accumulation ($\ge 80\%$ duration strictly required for video completion), server-side session token bounds, React VideoPlayer state decoupling, Vitest component test suite (15/15 frontend tests passing).
 - [ ] **Phase 12 (Roadmap): End-to-End MVP Milestone Release Gate & Validation**
   - *Status:* Scheduled upon completion of Phase 6 onboarding.
 

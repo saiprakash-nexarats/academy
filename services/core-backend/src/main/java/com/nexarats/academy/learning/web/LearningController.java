@@ -271,7 +271,7 @@ public class LearningController {
             @AuthenticationPrincipal UserPrincipal principal
     ) {
         assertAuthenticated(principal);
-        PlaybackCheckpointResponse resp = progressService.markLessonComplete(principal.getUserId(), lessonId, principal.getTenantId());
+        PlaybackCheckpointResponse resp = progressService.markLessonComplete(principal.getUserId(), lessonId, principal.getTenantId(), principal.getRoles());
         return ResponseEntity.ok(resp);
     }
 

@@ -71,6 +71,10 @@ public class Enrollment {
         return id;
     }
 
+    public void setId(UUID id) {
+        this.id = id;
+    }
+
     public String getEnrollmentNumber() {
         return enrollmentNumber;
     }

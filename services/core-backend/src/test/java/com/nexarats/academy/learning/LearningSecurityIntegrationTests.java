@@ -40,6 +40,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -275,5 +276,63 @@ public class LearningSecurityIntegrationTests {
                         .header("Authorization", "Bearer " + session.token())
                         .header("X-Tenant-ID", forgedTenantId.toString()))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("Security: Direct video lesson completion invocation WITHOUT 80% watch time is rejected with 400 Bad Request")
+    void testVideoLessonCompletionDirectCallWithoutWatchTimeRejected400() throws Exception {
+        String email = "bypass_student_" + UUID.randomUUID() + "@example.com";
+        UserSession session = registerUserWithTenant(email, "STUDENT", "bypass-tenant", "Bypass Org");
+
+        // Enroll student in test course
+        Enrollment enr = new Enrollment("ENR-BYP-" + UUID.randomUUID().toString().substring(0, 6), session.userId(), testCohort.getId(), EnrollmentStatus.ENROLLED);
+        enr.setCourseId(testCourse.getId());
+        enr.setTenantId(session.tenantId());
+        enrollmentRepository.save(enr);
+
+        // Attempt direct completion without watching
+        mockMvc.perform(post("/api/v1/learning/lessons/" + testLesson.getId() + "/complete")
+                        .header("Authorization", "Bearer " + session.token()))
+                .andExpect(status().isBadRequest())
+                .andExpect(status().reason(org.hamcrest.Matchers.containsString("Video lesson completion requires at least 80% validated watch time")));
+    }
+
+    @Test
+    @DisplayName("Security: Direct video lesson completion invocation WITH >= 80% watch time succeeds with 200 OK")
+    void testVideoLessonCompletionDirectCallAfterWatchTimeSucceeds200() throws Exception {
+        String email = "legit_student_" + UUID.randomUUID() + "@example.com";
+        UserSession session = registerUserWithTenant(email, "STUDENT", "legit-tenant-2", "Legit Org 2");
+
+        // Enroll student in test course
+        Enrollment enr = new Enrollment("ENR-LEG-" + UUID.randomUUID().toString().substring(0, 6), session.userId(), testCohort.getId(), EnrollmentStatus.ENROLLED);
+        enr.setCourseId(testCourse.getId());
+        enr.setTenantId(session.tenantId());
+        enrollmentRepository.save(enr);
+
+        // Create playback session
+        String playbackResStr = mockMvc.perform(post("/api/v1/learning/lessons/" + testLesson.getId() + "/playback-session")
+                        .header("Authorization", "Bearer " + session.token()))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        ObjectMapper mapper = new ObjectMapper();
+        com.fasterxml.jackson.databind.JsonNode rootNode = mapper.readTree(playbackResStr);
+        String sessionToken = rootNode.get("sessionToken").asText();
+        int durationSec = rootNode.has("durationSeconds") ? rootNode.get("durationSeconds").asInt() : 1200;
+
+        // Record progress checkpoints satisfying >= 80%
+        int watchTarget = (int) (durationSec * 0.85);
+        // Record checkpoint
+        mockMvc.perform(post("/api/v1/learning/lessons/" + testLesson.getId() + "/progress")
+                        .header("Authorization", "Bearer " + session.token())
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("{\"playbackPositionSeconds\":" + watchTarget + ",\"watchTimeDeltaSeconds\":" + watchTarget + ",\"idempotencyKey\":\"legit_chk_1\",\"sessionToken\":null}"))
+                .andExpect(status().isOk());
+
+        // Now call markLessonComplete -> succeeds 200 OK
+        mockMvc.perform(post("/api/v1/learning/lessons/" + testLesson.getId() + "/complete")
+                        .header("Authorization", "Bearer " + session.token()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.isLessonCompleted").value(true));
     }
 }
