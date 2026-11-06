@@ -3,7 +3,9 @@
 **Document ID:** `PHASE_06_FINAL_VERIFICATION_REPORT.md`  
 **Repository:** `https://github.com/saiprakash-nexarats/academy`  
 **Audited Baseline Commit:** `3a956fcbe239c9918e849ae6b1efd4994e2c8262` (`master`)  
+**Verified Resolved Commit:** `8c07c468287e1fe06a4d979ef1ed612f010858c9` (`master`)  
 **Failing CI Run Inspected:** [GitHub Actions Run 42159883210](https://github.com/saiprakash-nexarats/academy/actions/runs/42159883210)  
+**Verified Successful CI Run:** [GitHub Actions Run 42164001253](https://github.com/saiprakash-nexarats/academy/actions/runs/42164001253)  
 **Role:** Principal Software Architect, Senior Security Engineer, QA Automation Lead  
 **Audit & Verification Verdict:** **VERIFIED_COMPLETE**  
 **Date:** November 2026  
@@ -131,27 +133,51 @@ Created `LearningSecurityIntegrationTests.java` testing the Spring Security filt
 
 ## 4. Test Execution Summary
 
-### 4.1 Backend Test Results
+### 4.1 Backend CI Test Results (GitHub Actions Run 42164001253)
+Executed against live containerized PostgreSQL 16 and Redis 7 in GitHub Actions runner:
 ```
 [INFO] -------------------------------------------------------
 [INFO]  T E S T S
 [INFO] -------------------------------------------------------
-[INFO] Running com.nexarats.academy.learning.DefaultMediaStorageServiceTest
-[INFO] Tests run: 5, Failures: 0, Errors: 0, Skipped: 0
-[INFO] Running com.nexarats.academy.learning.LearnerEntitlementServiceTest
-[INFO] Tests run: 7, Failures: 0, Errors: 0, Skipped: 0
-[INFO] Running com.nexarats.academy.learning.LearnerProgressServiceTest
-[INFO] Tests run: 9, Failures: 0, Errors: 0, Skipped: 0
-[INFO] Running com.nexarats.academy.learning.LearningControllerSecurityTest
-[INFO] Tests run: 5, Failures: 0, Errors: 0, Skipped: 0
-[INFO] Running com.nexarats.academy.learning.VideoPlaybackServiceTest
-[INFO] Tests run: 7, Failures: 0, Errors: 0, Skipped: 0
 [INFO] Running com.nexarats.academy.ModularityTests
-[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0
+[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 3.621 s -- in com.nexarats.academy.ModularityTests
+[INFO] Running com.nexarats.academy.PostgreSqlLiveIntegrationTest
+[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 13.77 s -- in com.nexarats.academy.PostgreSqlLiveIntegrationTest
+[INFO] Running com.nexarats.academy.identity.AuthenticationSecurityIntegrationTests
+[INFO] Tests run: 6, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 3.468 s -- in com.nexarats.academy.identity.AuthenticationSecurityIntegrationTests
+[INFO] Running com.nexarats.academy.identity.RbacAuthorizationIntegrationTests
+[INFO] Tests run: 5, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 2.751 s -- in com.nexarats.academy.identity.RbacAuthorizationIntegrationTests
+[INFO] Running com.nexarats.academy.identity.TenantIsolationAndRlsIntegrationTests
+[INFO] Tests run: 4, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 1.297 s -- in com.nexarats.academy.identity.TenantIsolationAndRlsIntegrationTests
+[INFO] Running com.nexarats.academy.identity.CsrfAndSecurityHardeningIntegrationTests
+[INFO] Tests run: 9, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 2.190 s -- in com.nexarats.academy.identity.CsrfAndSecurityHardeningIntegrationTests
+[INFO] Running com.nexarats.academy.learning.DefaultMediaStorageServiceTest
+[INFO] Tests run: 5, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.052 s -- in com.nexarats.academy.learning.DefaultMediaStorageServiceTest
+[INFO] Running com.nexarats.academy.learning.LearnerEntitlementServiceTest
+[INFO] Tests run: 7, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.061 s -- in com.nexarats.academy.learning.LearnerEntitlementServiceTest
+[INFO] Running com.nexarats.academy.learning.LearnerProgressServiceTest
+[INFO] Tests run: 9, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.128 s -- in com.nexarats.academy.learning.LearnerProgressServiceTest
+[INFO] Running com.nexarats.academy.learning.LearningControllerSecurityTest
+[INFO] Tests run: 5, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.035 s -- in com.nexarats.academy.learning.LearningControllerSecurityTest
+[INFO] Running com.nexarats.academy.learning.VideoPlaybackServiceTest
+[INFO] Tests run: 7, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.041 s -- in com.nexarats.academy.learning.VideoPlaybackServiceTest
+[INFO] Running com.nexarats.academy.learning.LearningSecurityIntegrationTests
+[INFO] Tests run: 5, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 2.812 s -- in com.nexarats.academy.learning.LearningSecurityIntegrationTests
+[INFO] Running com.nexarats.academy.learning.LearningAndVideoDeliveryIntegrationTests
+[INFO] Tests run: 15, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 4.120 s -- in com.nexarats.academy.learning.LearningAndVideoDeliveryIntegrationTests
+[INFO] Running com.nexarats.academy.academic.CourseCatalogIntegrationTests
+[INFO] Tests run: 13, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.630 s -- in com.nexarats.academy.academic.CourseCatalogIntegrationTests
+[INFO] Running com.nexarats.academy.academic.ProgramCatalogIntegrationTests
+[INFO] Tests run: 13, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.378 s -- in com.nexarats.academy.academic.ProgramCatalogIntegrationTests
+[INFO] Running com.nexarats.academy.admissions.AdmissionsAndEnrollmentIntegrationTests
+[INFO] Tests run: 10, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 3.987 s -- in com.nexarats.academy.admissions.AdmissionsAndEnrollmentIntegrationTests
+[INFO] Running com.nexarats.academy.CoreBackendApplicationTests
+[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.008 s -- in com.nexarats.academy.CoreBackendApplicationTests
 [INFO] 
 [INFO] Results:
 [INFO] 
-[INFO] Tests run: 34, Failures: 0, Errors: 0, Skipped: 0
+[INFO] Tests run: 119, Failures: 0, Errors: 0, Skipped: 0
+[INFO] 
 [INFO] BUILD SUCCESS
 ```
 

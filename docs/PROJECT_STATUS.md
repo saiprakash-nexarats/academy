@@ -2,8 +2,8 @@
 
 **Project:** Nexarats Academy Enterprise Education Platform  
 **Target Branch:** `master`  
-**Current Baseline Commit:** `3a956fc` (Phase 6 Final Hardened Baseline)  
-**Current Status:** Phase 6 Final CI, Security & Verification Completed — VERIFIED_COMPLETE  
+**Current Baseline Commit:** `8c07c46` (Phase 6 Final Hardened Baseline)  
+**Current Status:** Phase 6 Final CI, Security & Verification Completed — VERIFIED_COMPLETE (CI Run 42164001253 Green)  
 **Last Updated:** November 2026  
 **Next Recommended Action:** Phase 6B (Student Academic Onboarding & Legal Terms)  
 
@@ -14,7 +14,7 @@
 | Subsystem | Health Status | Key Metrics | Active Work Remaining |
 |:---|:---|:---|:---|
 | **Frontend (`apps/web`)** | 🟢 Healthy | 0 Lint Errors, 0 Build Errors, 7/7 Video Tests Passing | Student onboarding wizard, batch calendar |
-| **Core Backend (`services/core-backend`)** | 🟢 Healthy | 34 Unit/Modulith Tests Passing, CI Profile Hardened | Phase 6B student onboarding |
+| **Core Backend (`services/core-backend`)** | 🟢 Healthy | 119/119 Tests Passing in CI (PostgreSQL + Redis) | Phase 6B student onboarding |
 | **Database Migrations** | 🟢 Verified | Flyway V1–V10 applied cleanly | V11 migration for student onboarding |
 | **Security & RBAC** | 🟢 Hardened | Spring Security Integration Tests, Strict Tenant Scoping | Fine-grained permission evaluations |
 | **Video Playback & Media** | 🟢 Hardened | `MediaStorageService`, Path Traversal Protected, RFC 7233 | Cloud MinIO/S3 transcode worker in Phase 14 |
