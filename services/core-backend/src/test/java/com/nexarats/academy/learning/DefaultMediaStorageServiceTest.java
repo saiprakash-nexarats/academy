@@ -73,3 +73,4 @@ public class DefaultMediaStorageServiceTest {
         assertThat(resource).isNull();
     }
 }
+

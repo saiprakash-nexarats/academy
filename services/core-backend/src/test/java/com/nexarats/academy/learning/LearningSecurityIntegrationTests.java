@@ -10,10 +10,18 @@ import com.nexarats.academy.admissions.model.EnrollmentStatus;
 import com.nexarats.academy.admissions.repository.EnrollmentRepository;
 import com.nexarats.academy.cohort.model.Cohort;
 import com.nexarats.academy.cohort.repository.CohortRepository;
+import com.nexarats.academy.common.security.JwtTokenService;
 import com.nexarats.academy.identity.dto.LoginResponse;
 import com.nexarats.academy.identity.dto.RegisterRequest;
+import com.nexarats.academy.identity.model.Role;
+import com.nexarats.academy.identity.model.TenantMembership;
+import com.nexarats.academy.identity.model.User;
+import com.nexarats.academy.identity.repository.RoleRepository;
+import com.nexarats.academy.identity.repository.TenantMembershipRepository;
+import com.nexarats.academy.identity.repository.UserRepository;
 import com.nexarats.academy.identity.service.AuthService;
 import com.nexarats.academy.identity.service.RateLimitingService;
+import com.nexarats.academy.identity.service.SessionService;
 import com.nexarats.academy.tenant.Tenant;
 import com.nexarats.academy.tenant.TenantService;
 import org.junit.jupiter.api.BeforeEach;
@@ -32,10 +40,19 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+/**
+ * Spring Security & Multi-Tenant Authorization Integration Tests.
+ *
+ * Verifies:
+ * 1. Unauthenticated requests return 401 Unauthorized.
+ * 2. Authenticated students with valid tenant token can access dashboard (200 OK).
+ * 3. Cross-tenant isolation: Users in Tenant A cannot see courses/enrollments or access syllabus from Tenant B.
+ * 4. Multi-tenant dual enrollment: The same user enrolled across different tenants maintains strictly isolated progress.
+ * 5. Tenant ID header spoofing: Mismatched X-Tenant-ID headers are rejected (403 Forbidden).
+ */
 @SpringBootTest
 @ActiveProfiles("local")
 public class LearningSecurityIntegrationTests {
@@ -50,6 +67,21 @@ public class LearningSecurityIntegrationTests {
 
     @Autowired
     private TenantService tenantService;
+
+    @Autowired
+    private UserRepository userRepository;
+
+    @Autowired
+    private TenantMembershipRepository membershipRepository;
+
+    @Autowired
+    private RoleRepository roleRepository;
+
+    @Autowired
+    private SessionService sessionService;
+
+    @Autowired
+    private JwtTokenService jwtTokenService;
 
     @Autowired
     private CourseRepository courseRepository;
@@ -88,9 +120,30 @@ public class LearningSecurityIntegrationTests {
     private UserSession registerUserWithTenant(String email, String role, String tenantSlug, String tenantName) {
         String testIp = "10.0." + (int) (Math.random() * 200) + "." + (int) (Math.random() * 200);
         Tenant tenant = tenantService.getOrCreateTenant(tenantSlug, tenantName);
-        RegisterRequest req = new RegisterRequest(email, "SecurePass2026!", "SecTest", "User", tenantSlug);
+        RegisterRequest req = new RegisterRequest(email, "SecurePass2026!", "SecTest", "User", null);
         LoginResponse resp = authService.register(req, testIp, "SecurityAgent");
-        return new UserSession(resp.accessToken(), resp.user().id(), tenant.getId(), tenant.getSlug());
+        User user = userRepository.findById(resp.user().id()).orElseThrow();
+
+        // Create membership in target tenant
+        Role studentRole = roleRepository.findByCode("ROLE_STUDENT")
+                .orElseThrow(() -> new IllegalStateException("System role ROLE_STUDENT is not seeded"));
+        TenantMembership membership = new TenantMembership(tenant, user, "ACTIVE");
+        membership.addRole(studentRole);
+        membershipRepository.save(membership);
+
+        // Generate token scoped specifically to target tenant
+        SessionService.RotatedTokenPair tokenPair = sessionService.createSession(user, tenant, testIp, "SecurityAgent", "WEB");
+        String token = jwtTokenService.generateAccessToken(
+                user.getId(),
+                user.getEmail(),
+                user.getFullName(),
+                tenant.getId(),
+                tenant.getSlug(),
+                tokenPair.session().getId(),
+                List.of("ROLE_STUDENT"),
+                List.of()
+        );
+        return new UserSession(token, user.getId(), tenant.getId(), tenant.getSlug());
     }
 
     private record UserSession(String token, UUID userId, UUID tenantId, String tenantSlug) {}
@@ -157,23 +210,57 @@ public class LearningSecurityIntegrationTests {
         Tenant tenant1 = tenantService.getOrCreateTenant("corp-tenant-1-" + UUID.randomUUID().toString().substring(0, 6), "Enterprise Corp 1");
         Tenant tenant2 = tenantService.getOrCreateTenant("corp-tenant-2-" + UUID.randomUUID().toString().substring(0, 6), "Enterprise Corp 2");
 
-        // Register in Tenant 1
+        // Register user
         String testIp = "10.0.99.12";
-        RegisterRequest req1 = new RegisterRequest(sharedEmail, "DualPass2026!", "Dual", "Learner", tenant1.getSlug());
+        RegisterRequest req1 = new RegisterRequest(sharedEmail, "DualPass2026!", "Dual", "Learner", null);
         LoginResponse resp1 = authService.register(req1, testIp, "DualAgent");
+        User user = userRepository.findById(resp1.user().id()).orElseThrow();
 
-        // Create Enrollment in Tenant 1
-        Enrollment enr1 = new Enrollment("ENR-T1-" + UUID.randomUUID().toString().substring(0, 6), resp1.user().id(), testCohort.getId(), EnrollmentStatus.ENROLLED);
+        // Create membership in Tenant 1
+        Role studentRole = roleRepository.findByCode("ROLE_STUDENT").orElseThrow();
+        TenantMembership m1 = new TenantMembership(tenant1, user, "ACTIVE");
+        m1.addRole(studentRole);
+        membershipRepository.save(m1);
+
+        // Create membership in Tenant 2
+        TenantMembership m2 = new TenantMembership(tenant2, user, "ACTIVE");
+        m2.addRole(studentRole);
+        membershipRepository.save(m2);
+
+        // Generate token for Tenant 1
+        SessionService.RotatedTokenPair pair1 = sessionService.createSession(user, tenant1, testIp, "DualAgent", "WEB");
+        String token1 = jwtTokenService.generateAccessToken(
+                user.getId(), user.getEmail(), user.getFullName(),
+                tenant1.getId(), tenant1.getSlug(), pair1.session().getId(),
+                List.of("ROLE_STUDENT"), List.of()
+        );
+
+        // Generate token for Tenant 2
+        SessionService.RotatedTokenPair pair2 = sessionService.createSession(user, tenant2, testIp, "DualAgent", "WEB");
+        String token2 = jwtTokenService.generateAccessToken(
+                user.getId(), user.getEmail(), user.getFullName(),
+                tenant2.getId(), tenant2.getSlug(), pair2.session().getId(),
+                List.of("ROLE_STUDENT"), List.of()
+        );
+
+        // Create Enrollment in Tenant 1 only
+        Enrollment enr1 = new Enrollment("ENR-T1-" + UUID.randomUUID().toString().substring(0, 6), user.getId(), testCohort.getId(), EnrollmentStatus.ENROLLED);
         enr1.setCourseId(testCourse.getId());
         enr1.setTenantId(tenant1.getId());
         enrollmentRepository.save(enr1);
 
-        // Verify dashboard for Tenant 1 token shows Tenant 1 enrollment
+        // Verify dashboard for Tenant 1 token shows 1 enrolled course
         mockMvc.perform(get("/api/v1/learning/dashboard")
-                        .header("Authorization", "Bearer " + resp1.accessToken()))
+                        .header("Authorization", "Bearer " + token1))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.enrolledCoursesCount").value(1))
                 .andExpect(jsonPath("$.enrolledCourses[0].enrollmentNumber").value(enr1.getEnrollmentNumber()));
+
+        // Verify dashboard for Tenant 2 token shows 0 enrolled courses (zero leakage from Tenant 1)
+        mockMvc.perform(get("/api/v1/learning/dashboard")
+                        .header("Authorization", "Bearer " + token2))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.enrolledCoursesCount").value(0));
     }
 
     @Test
