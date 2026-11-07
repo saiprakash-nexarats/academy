@@ -183,7 +183,7 @@ class OnboardingControllerSecurityTest {
     void generatesPresignedUploadUrl() {
         UserPrincipal principal = createPrincipal(tenantId, userId, "ROLE_STUDENT");
         AvatarStorageService.PreSignedUploadSpec spec = new AvatarStorageService.PreSignedUploadSpec(
-                "/api/v1/onboarding/avatar/direct-upload?key=avatars/spec.jpg",
+                "http://localhost:9000/nexarats-academy-avatars/avatars/spec.jpg?X-Amz-Signature=sig-123",
                 "avatars/spec.jpg",
                 "PUT",
                 Instant.now().plusSeconds(900),
@@ -197,7 +197,7 @@ class OnboardingControllerSecurityTest {
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(resp.getBody()).isNotNull();
-        assertThat(resp.getBody().uploadUrl()).contains("direct-upload");
+        assertThat(resp.getBody().uploadUrl()).contains("X-Amz-Signature");
         assertThat(resp.getBody().httpMethod()).isEqualTo("PUT");
     }
 
@@ -259,5 +259,20 @@ class OnboardingControllerSecurityTest {
 
         // Verification: The service received "192.168.1.100" (remote TCP addr), NOT the spoofed "1.1.1.1"!
         verify(legalAgreementService).acceptAgreement(eq(tenantId), eq(userId), eq(agId), eq("1.0"), eq("192.168.1.100"), any());
+    }
+
+    @Test
+    @DisplayName("Security: confirmPresignedUpload rejects spoofed key belonging to another user or tenant")
+    void confirmPresignedUploadRejectsKeySpoofing() {
+        UserPrincipal principal = createPrincipal(tenantId, userId, "ROLE_STUDENT");
+        UUID otherUser = UUID.randomUUID();
+        ConfirmAvatarUploadRequest request = new ConfirmAvatarUploadRequest(
+                String.format("avatars/%s/%s/photo.jpg", tenantId, otherUser),
+                "photo.jpg"
+        );
+
+        assertThatThrownBy(() -> controller.confirmPresignedUpload(request, principal))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("Invalid storage object key ownership");
     }
 }

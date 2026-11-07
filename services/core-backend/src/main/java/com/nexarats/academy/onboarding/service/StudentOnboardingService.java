@@ -82,7 +82,57 @@ public class StudentOnboardingService {
         boolean legalAgreementsAccepted = legalAgreementService.areAllMandatoryAgreementsAccepted(
                 tenantId, userId, pendingAgreements);
 
-        boolean canActivate = profileCompleted && developerLinksCompleted && avatarUploaded && legalAgreementsAccepted;
+        // Strict tenant-scoped enrollment lookup (null-tenant records are strictly rejected)
+        UUID activeEnrollmentId = null;
+        EnrollmentStatus activeEnrollmentStatus = null;
+        List<Enrollment> enrollments = enrollmentRepository.findByLearnerUserIdOrderByEnrolledAtDesc(userId);
+        List<Enrollment> tenantEnrollments = new ArrayList<>();
+        for (Enrollment e : enrollments) {
+            if (e.getTenantId() != null && tenantId.equals(e.getTenantId())) {
+                tenantEnrollments.add(e);
+                if (activeEnrollmentId == null) {
+                    activeEnrollmentId = e.getId();
+                    activeEnrollmentStatus = e.getStatus();
+                }
+            }
+        }
+
+        List<String> blockingReasons = new ArrayList<>();
+        if (!profileCompleted) {
+            blockingReasons.add("Student headline and bio are required.");
+        }
+        if (!developerLinksCompleted) {
+            blockingReasons.add("At least one developer link (GitHub or LinkedIn) is required.");
+        }
+        if (!avatarUploaded) {
+            blockingReasons.add("A clean, verified avatar asset is required.");
+        }
+        if (!legalAgreementsAccepted) {
+            blockingReasons.add("All mandatory legal agreements must be accepted: " + String.join(", ", pendingAgreements));
+        }
+
+        boolean hasEligibleEnrollment = false;
+        if (tenantEnrollments.isEmpty()) {
+            blockingReasons.add("No enrollment found for student in the current tenant. An eligible enrollment is required before completing onboarding.");
+        } else {
+            boolean hasEnrolledStatus = tenantEnrollments.stream()
+                    .anyMatch(e -> e.getStatus() == EnrollmentStatus.ENROLLED);
+            if (hasEnrolledStatus) {
+                hasEligibleEnrollment = true;
+            } else if (profile != null && profile.getOnboardingStatus() == OnboardingStatus.COMPLETED
+                    && tenantEnrollments.stream().anyMatch(e -> e.getStatus() == EnrollmentStatus.ACTIVE)) {
+                hasEligibleEnrollment = true;
+            } else {
+                blockingReasons.add("Student has no eligible enrollment in ENROLLED status for activation. Current status: " + tenantEnrollments.get(0).getStatus());
+            }
+        }
+
+        boolean canActivate = profileCompleted
+                && developerLinksCompleted
+                && avatarUploaded
+                && legalAgreementsAccepted
+                && hasEligibleEnrollment
+                && (profile == null || profile.getOnboardingStatus() != OnboardingStatus.COMPLETED);
 
         OnboardingStatus overallStatus = OnboardingStatus.NOT_STARTED;
         if (profile != null && profile.getOnboardingStatus() == OnboardingStatus.COMPLETED) {
@@ -90,18 +140,6 @@ public class StudentOnboardingService {
         } else if (profile != null && (profile.getOnboardingStatus() == OnboardingStatus.IN_PROGRESS
                 || profileCompleted || developerLinksCompleted || avatarUploaded || !pendingAgreements.isEmpty())) {
             overallStatus = OnboardingStatus.IN_PROGRESS;
-        }
-
-        // Strict tenant-scoped enrollment lookup (null-tenant records are strictly rejected)
-        UUID activeEnrollmentId = null;
-        EnrollmentStatus activeEnrollmentStatus = null;
-        List<Enrollment> enrollments = enrollmentRepository.findByLearnerUserIdOrderByEnrolledAtDesc(userId);
-        for (Enrollment e : enrollments) {
-            if (e.getTenantId() != null && tenantId.equals(e.getTenantId())) {
-                activeEnrollmentId = e.getId();
-                activeEnrollmentStatus = e.getStatus();
-                break;
-            }
         }
 
         String avatarUrl = profile != null ? profileService.resolveAvatarUrl(profile.getAvatarAssetId()) : null;
@@ -117,7 +155,8 @@ public class StudentOnboardingService {
                 canActivate,
                 profileDto,
                 activeEnrollmentId,
-                activeEnrollmentStatus
+                activeEnrollmentStatus,
+                blockingReasons
         );
     }
 

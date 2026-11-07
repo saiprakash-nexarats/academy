@@ -41,6 +41,9 @@ public class StudentAgreementAcceptance {
     @Column(name = "acceptance_method", nullable = false, length = 32)
     private String acceptanceMethod = "CLICKWRAP_CHECKBOX";
 
+    @Column(name = "is_legacy_unverified", nullable = false)
+    private boolean legacyUnverified = false;
+
     public StudentAgreementAcceptance() {
     }
 
@@ -136,5 +139,13 @@ public class StudentAgreementAcceptance {
 
     public void setAcceptanceMethod(String acceptanceMethod) {
         this.acceptanceMethod = acceptanceMethod;
+    }
+
+    public boolean isLegacyUnverified() {
+        return legacyUnverified;
+    }
+
+    public void setLegacyUnverified(boolean legacyUnverified) {
+        this.legacyUnverified = legacyUnverified;
     }
 }

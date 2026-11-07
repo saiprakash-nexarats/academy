@@ -70,6 +70,7 @@ export interface OnboardingStatusResponse {
   studentProfile: StudentProfileDto | null
   activeEnrollmentId: string | null
   activeEnrollmentStatus: string | null
+  blockingReasons?: string[]
 }
 
 export interface CompleteOnboardingResponse {

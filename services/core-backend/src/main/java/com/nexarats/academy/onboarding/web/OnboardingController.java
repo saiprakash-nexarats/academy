@@ -178,6 +178,78 @@ public class OnboardingController {
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
+    @PostMapping("/avatar/confirm-upload")
+    public ResponseEntity<AvatarUploadResponse> confirmPresignedUpload(
+            @Valid @RequestBody ConfirmAvatarUploadRequest request,
+            @AuthenticationPrincipal UserPrincipal principal
+    ) {
+        assertAuthenticated(principal);
+
+        String key = request.storageObjectKey();
+        String tenantFolder = principal.getTenantId() != null ? principal.getTenantId().toString() : "global";
+        String expectedPrefix = String.format("avatars/%s/%s/", tenantFolder, principal.getUserId());
+
+        if (!key.startsWith(expectedPrefix)) {
+            log.warn("Cross-user/cross-tenant avatar spoofing rejected: user={}, key={}",
+                    principal.getUserId(), key);
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Invalid storage object key ownership.");
+        }
+
+        // 1. Fetch uploaded bytes from S3/storage
+        byte[] bytes = storageService.getAvatarBytes(key);
+
+        // 2. Validate MIME magic bytes, size and dimensions
+        String filename = request.originalFilename() != null ? request.originalFilename() : "avatar.jpg";
+        AvatarValidationService.ValidatedAvatar validated = avatarValidationService.validateAvatarBytes(
+                bytes, filename
+        );
+
+        // 3. Persist asset initially as PENDING (never automatically CLEAN)
+        AvatarAsset asset = new AvatarAsset(
+                principal.getTenantId(),
+                principal.getUserId(),
+                key,
+                filename,
+                validated.detectedContentType(),
+                bytes.length
+        );
+        asset.setScanStatus(ScanStatus.PENDING);
+        asset = avatarAssetRepository.save(asset);
+
+        // 4. ClamAV malware threat scan
+        AvatarMalwareScanningService.ScanResult scanResult = malwareScanningService.scanFileBytes(bytes);
+
+        if (scanResult.status() == ScanStatus.CLEAN) {
+            asset.approveAsClean(scanResult.details());
+            asset = avatarAssetRepository.save(asset);
+            profileService.linkAvatarAsset(principal.getTenantId(), principal.getUserId(), asset.getId());
+        } else if (scanResult.status() == ScanStatus.QUARANTINED) {
+            asset.quarantine(scanResult.details());
+            avatarAssetRepository.save(asset);
+            log.warn("Presigned avatar upload quarantined for user {}: {}", principal.getUserId(), scanResult.details());
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Avatar file quarantined: " + scanResult.details());
+        } else {
+            asset.markInfected(scanResult.details());
+            avatarAssetRepository.save(asset);
+            storageService.deleteAvatar(key);
+            log.warn("Presigned avatar upload rejected for user {}: {}", principal.getUserId(), scanResult.details());
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Malware detected in avatar payload: " + scanResult.details());
+        }
+
+        String avatarUrl = profileService.resolveAvatarUrl(asset.getId());
+        AvatarUploadResponse response = new AvatarUploadResponse(
+                asset.getId(),
+                key,
+                asset.getContentType(),
+                asset.getFileSizeBytes(),
+                asset.getScanStatus(),
+                asset.getScanDetails(),
+                avatarUrl
+        );
+
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
     @DeleteMapping("/avatar")
     public ResponseEntity<Void> removeAvatar(@AuthenticationPrincipal UserPrincipal principal) {
         assertAuthenticated(principal);

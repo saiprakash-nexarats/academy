@@ -16,6 +16,23 @@ public record OnboardingStatusResponse(
         boolean canActivate,
         StudentProfileDto studentProfile,
         UUID activeEnrollmentId,
-        EnrollmentStatus activeEnrollmentStatus
+        EnrollmentStatus activeEnrollmentStatus,
+        List<String> blockingReasons
 ) {
+    public OnboardingStatusResponse(
+            OnboardingStatus overallStatus,
+            boolean profileCompleted,
+            boolean developerLinksCompleted,
+            boolean avatarUploaded,
+            boolean legalAgreementsAccepted,
+            List<String> pendingAgreements,
+            boolean canActivate,
+            StudentProfileDto studentProfile,
+            UUID activeEnrollmentId,
+            EnrollmentStatus activeEnrollmentStatus
+    ) {
+        this(overallStatus, profileCompleted, developerLinksCompleted, avatarUploaded,
+                legalAgreementsAccepted, pendingAgreements, canActivate, studentProfile,
+                activeEnrollmentId, activeEnrollmentStatus, List.of());
+    }
 }

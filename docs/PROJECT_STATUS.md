@@ -3,7 +3,7 @@
 **Project:** Nexarats Academy Enterprise Education Platform  
 **Target Branch:** `master`  
 **Current Baseline Commit:** `feat/phase-6b-student-onboarding` (Phase 6B: Final Security & Acceptance Recovery Complete)  
-**Current Status:** Milestone 1 Core Foundation — 5/70 Phases Verified Complete (7.14%), 7 Partially Complete (Phases 5, 6, 7, 8, 9, 10, 11), 1 Blocked (Phase 12), 57 Not Started  
+**Current Status:** Milestone 1 Core Foundation — 6/70 Phases Verified Complete (8.57%), 6 Partially Complete (Phases 5, 7, 8, 9, 10, 11), 1 Blocked (Phase 12), 57 Not Started  
 **Comprehensive Audit Reference:** `docs/academy-roadmap/COMPLETE_70_PHASE_PROGRESS_AUDIT.md`  
 **Phase 6B Final Recovery Report:** `docs/academy-roadmap/PHASE_6B_FINAL_RECOVERY_REPORT.md`  
 **Phase 6B Implementation Report:** `docs/academy-roadmap/44_PHASE_6B_STUDENT_ONBOARDING_REPORT.md`  
@@ -17,8 +17,8 @@
 | Subsystem | Health Status | Key Metrics | Active Work Remaining |
 |:---|:---|:---|:---|
 | **Frontend (`apps/web`)** | 🟢 Healthy | 0 Lint Errors, 0 Build Errors, 31 Vitest & Node Tests Passing | Bookmarking drawer, batch countdown, counseling booking |
-| **Core Backend (`services/core-backend`)** | 🟢 Healthy | Spring Modulith Architecture Verified, 45 Onboarding & Architecture Tests Passing (79 Total Unit/Security Tests) | CRM review portal, installment schedules, streak calculator |
-| **Database Migrations** | 🟢 Verified | Flyway V1–V12 applied cleanly | Subsequent migrations |
+| **Core Backend (`services/core-backend`)** | 🟢 Healthy | Spring Modulith Architecture Verified, 70 Unit/Security Tests Passing + CI Integration Tests | CRM review portal, installment schedules, streak calculator |
+| **Database Migrations** | 🟢 Verified | Flyway V1–V13 applied cleanly | Subsequent migrations |
 | **Security & RBAC** | 🟢 Hardened | Spring Security, Strict Tenant Scoping, Session Token Binding, ClamAV Fail-Closed, Content Hash Proof, Proxy Defense | Fine-grained permission evaluations |
 | **Video Playback & Media** | 🟢 Hardened | `MediaStorageService`, RFC 7233, Server-Side Watch Delta Limits, WebP Bitstream Parser, Onboarding Access Gate | Video bookmarking, transcript drawer, S3 transcode |
 | **Progress Engine** | 🟢 Hardened | Video watch-time $\ge 80\%$ required, Non-video manual completion, Dual-tenant isolation, Student Lifecycle Activation | Daily streak counters, learning bookmarks |

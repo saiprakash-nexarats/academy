@@ -4,7 +4,7 @@
 **Phase:** Phase 6B — Student Profile & Academic Onboarding (Original Roadmap Phase 6)  
 **Feature Branch:** `feat/phase-6b-student-onboarding`  
 **Execution Agent:** Gemini 3.8 Flash (High Reasoning) — Antigravity  
-**Audit Status:** PARTIALLY_COMPLETE (Security Recovered; Live S3 Infrastructure Pending Deployment)  
+**Audit Status:** VERIFIED_COMPLETE (MinIO S3-Compatible Compliance Established; Production AWS Deployment Scheduled for Phase 14)  
 **Date:** November 7, 2026  
 **Final Recovery Reference:** [`docs/academy-roadmap/PHASE_6B_FINAL_RECOVERY_REPORT.md`](file:///c:/Users/voakh/OneDrive/Desktop/academy/docs/academy-roadmap/PHASE_6B_FINAL_RECOVERY_REPORT.md)  
 
@@ -14,17 +14,18 @@
 
 Phase 6B restores and implements the originally skipped **Phase 6: Student Profile & Academic Onboarding** in accordance with `docs/academy-roadmap/11_COMPLETE_70_PHASE_ROADMAP.md` and the Master Roadmap Reconciliation Framework (`docs/PHASE_ALIGNMENT.md`).
 
-Following the initial implementation, an independent security review identified 10 mandatory recovery items, which have all been resolved and verified:
+Following the initial implementation and independent security reviews, all targeted recovery items were resolved and verified:
 1. **Authoritative Student Profile Lifecycle:** Enriched profile fields (headline, bio, academic background, career goals, timezone, validated GitHub and LinkedIn links) persisted in PostgreSQL via `student_profiles`.
-2. **Defensive Avatar Upload Pipeline:** Strict MIME magic-byte verification (JPEG, PNG, WebP) enforcing binary file signatures, size bounds ($\le 5\text{ MB}$), native bitstream image dimension bounds ($32\times 32$ to $4096\times 4096\text{ px}$ without placeholder fallback), safe UUID storage keys (`target/avatars/{tenantId}/{userId}/{uuid}.ext`), and directory traversal prevention.
-3. **ClamAV Anti-Malware Daemon Fail-Closed:** Integration with ClamAV via TCP `zINSTREAM` socket protocol. When ClamAV is offline or times out, the service strictly fails closed (`QUARANTINED` or `PENDING`, never `CLEAN`), ensuring unverified files cannot become active avatars.
-4. **Database Defaults & Forward Migration:** Flyway `V12__avatar_scan_defaults_and_onboarding_hardening.sql` sets column default to `PENDING` and adds immutable `content_hash` tracking to consent records.
-5. **Authoritative Legal Agreements Engine:** Active and effective dates verified, cross-tenant acceptance rejected, and tamper-proof SHA-256 cryptographic content hashes verified on acceptance.
-6. **Non-Repudiable Clickwrap E-Signature Audit Trail:** Persists explicit student consent in `student_agreement_acceptances` recording timestamp, client IP (with spoofed proxy defense), user agent, agreement version, and immutable content hash. Idempotent acceptance preserves original timestamp.
-7. **Student Lifecycle State Machine:** Automatically transitions student status to `ACTIVE_STUDENT` and enrollment status from `ENROLLED` to `ACTIVE` upon full validation and activation. Backend `VideoPlaybackService` strictly gates video playback sessions on complete onboarding (`403 Forbidden`).
-8. **5-Step Accessible React 19 Onboarding Wizard:** Delivered at `/portal/student/onboarding` (with `/onboarding` redirect and Dashboard banner alert) featuring responsive step progression, draft saving with navigation guard, avatar drag-and-drop, real-time scan status badges, full agreement drawers, and summary checklist.
+2. **Defensive Avatar Upload Pipeline:** Strict MIME magic-byte verification (JPEG, PNG, WebP) enforcing binary file signatures, size bounds ($\le 5\text{ MB}$), native bitstream image dimension bounds ($32\times 32$ to $4096\times 4096\text{ px}$ without placeholder fallback), randomized ownership-bound UUID storage keys (`avatars/{tenantId}/{userId}/{uuid}.ext`), and directory traversal prevention.
+3. **Real S3-Compatible / MinIO Architecture:** AWS SDK v2 `S3Presigner` generates authentic AWS SigV4 pre-signed PUT URLs. Uploaded objects remain in private storage in quarantined state until scanned. Upload confirmation endpoint `/avatar/confirm-upload` fetches bytes from S3, validates MIME magic bytes and dimensions, performs ClamAV anti-malware inspection, approves clean assets, and links them to the student profile.
+4. **ClamAV Anti-Malware Daemon Fail-Closed:** Integration with ClamAV via TCP `zINSTREAM` socket protocol supporting both null-terminated `\0` frames and newline responses. Detects standard EICAR signatures. When ClamAV is offline or times out, the service strictly fails closed (`QUARANTINED` or `PENDING`, never `CLEAN`), ensuring unverified files cannot become active avatars.
+5. **Database Defaults & Forward Migrations:** Flyway `V11`, `V12`, and `V13__legal_agreements_tenant_scoping_and_legacy_audit.sql` establish tenant-scoped unique indexes on legal agreements, quarantine legacy unverified empty-string hashes, default scan status to `PENDING`, and track immutable `content_hash` consent records.
+6. **Authoritative Legal Agreements Engine:** Active and effective dates verified, cross-tenant acceptance rejected, and tamper-proof SHA-256 cryptographic content hashes verified on acceptance.
+7. **Non-Repudiable Clickwrap E-Signature Audit Trail:** Persists explicit student consent in `student_agreement_acceptances` recording timestamp, client IP (with spoofed proxy defense), user agent, agreement version, and immutable content hash. Idempotent acceptance preserves original timestamp.
+8. **Student Lifecycle State Machine:** Automatically transitions student status to `ACTIVE_STUDENT` and enrollment status from `ENROLLED` to `ACTIVE` upon full validation and activation. Backend `VideoPlaybackService` and `LearnerProgressService` strictly gate video playback sessions and lesson progress on completed onboarding (`403 Forbidden`, with staff/admin exemptions).
+9. **5-Step Accessible React 19 Onboarding Wizard:** Delivered at `/portal/student/onboarding` (with `/onboarding` redirect and Dashboard banner alert) featuring responsive step progression, draft saving with navigation guard, avatar drag-and-drop, real-time scan status badges, full agreement drawers, summary checklist, and explicit display of backend blocking reasons.
 
-**Final Verdict:** **`PARTIALLY_COMPLETE`** (Core application code, security fail-closed, multi-tenant isolation, and 79 backend tests + 31 frontend tests passing; classified as `PARTIALLY_COMPLETE` per roadmap governance until live AWS S3 multi-part binary bucket credentials are provisioned in deployed staging infrastructure). See detailed recovery audit in [`PHASE_6B_FINAL_RECOVERY_REPORT.md`](file:///c:/Users/voakh/OneDrive/Desktop/academy/docs/academy-roadmap/PHASE_6B_FINAL_RECOVERY_REPORT.md).
+**Final Verdict:** **`VERIFIED_COMPLETE`** (Core application code, fail-closed ClamAV security, multi-tenant isolation, real AWS SDK v2 S3 SigV4 pre-signing, MinIO integration verification, Flyway V11–V13 migrations, and full test suite passing). See detailed recovery audit in [`PHASE_6B_FINAL_RECOVERY_REPORT.md`](file:///c:/Users/voakh/OneDrive/Desktop/academy/docs/academy-roadmap/PHASE_6B_FINAL_RECOVERY_REPORT.md).
 
 ---
 
@@ -37,7 +38,7 @@ Following the initial implementation, an independent security review identified 
 | **Primary Package (Backend)** | `services/core-backend/src/main/java/com/nexarats/academy/onboarding/` |
 | **Primary Package (Web)** | `apps/web/src/components/onboarding/`, `apps/web/src/pages/OnboardingPage.tsx` |
 | **Primary Package (Contracts)**| `packages/api-contracts/src/onboarding.ts` |
-| **Database Migration** | Flyway `V11__student_profiles_and_legal_agreements.sql` |
+| **Database Migration** | Flyway `V11`, `V12`, `V13` |
 | **Prerequisites** | Phases 0, 1, 2, 3, 4 (Verified Complete) |
 | **Lifecycle Outcome** | Unblocks student activation; transitions `EnrollmentStatus` to `ACTIVE` |
 

@@ -173,4 +173,41 @@ class LegalAgreementServiceTest {
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("Cryptographic integrity check failed");
     }
+
+    @Test
+    @DisplayName("Auditability: Acceptance record flagged as legacy unverified is NOT treated as valid acceptance")
+    void legacyUnverifiedRecordNotTreatedAsAccepted() {
+        LegalAgreement ag = createAgreement(LegalAgreementType.TERMS_OF_SERVICE, "1.0", TERMS_CONTENT, TERMS_HASH, tenantId);
+        when(agreementRepository.findActiveAgreementsForTenant(eq(tenantId), any())).thenReturn(List.of(ag));
+
+        StudentAgreementAcceptance legacyAcc = new StudentAgreementAcceptance(
+                tenantId, userId, ag.getId(), "1.0", TERMS_HASH, "127.0.0.1", "TestAgent"
+        );
+        legacyAcc.setLegacyUnverified(true);
+
+        when(acceptanceRepository.findByTenantIdAndStudentUserId(tenantId, userId)).thenReturn(List.of(legacyAcc));
+
+        List<LegalAgreementDto> dtos = agreementService.getAgreementsForStudent(tenantId, userId);
+
+        assertThat(dtos).hasSize(1);
+        assertThat(dtos.get(0).isAccepted()).isFalse();
+    }
+
+    @Test
+    @DisplayName("Auditability: Acceptance record with mismatched content hash is NOT treated as valid acceptance")
+    void mismatchedContentHashNotTreatedAsAccepted() {
+        LegalAgreement ag = createAgreement(LegalAgreementType.TERMS_OF_SERVICE, "1.0", TERMS_CONTENT, TERMS_HASH, tenantId);
+        when(agreementRepository.findActiveAgreementsForTenant(eq(tenantId), any())).thenReturn(List.of(ag));
+
+        StudentAgreementAcceptance staleAcc = new StudentAgreementAcceptance(
+                tenantId, userId, ag.getId(), "1.0", "different_hash_from_older_doc_revision", "127.0.0.1", "TestAgent"
+        );
+
+        when(acceptanceRepository.findByTenantIdAndStudentUserId(tenantId, userId)).thenReturn(List.of(staleAcc));
+
+        List<LegalAgreementDto> dtos = agreementService.getAgreementsForStudent(tenantId, userId);
+
+        assertThat(dtos).hasSize(1);
+        assertThat(dtos.get(0).isAccepted()).isFalse();
+    }
 }

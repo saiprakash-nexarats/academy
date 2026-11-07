@@ -6,12 +6,12 @@
 **Current Baseline Commit:** `582faea`  
 **Current Status Summary:**
 - **Total Phases:** 70
-- **Verified Complete:** 5 (7.14%)
-- **Partially Complete:** 7 (Phases 5, 6, 7, 8, 9, 10, 11)
+- **Verified Complete:** 6 (8.57%)
+- **Partially Complete:** 6 (Phases 5, 7, 8, 9, 10, 11)
 - **Implemented Unverified:** 0
 - **Blocked:** 1 (Phase 12 — blocked by incomplete prerequisites)
 - **Not Started:** 57 (81.43%)
-- **Current Milestone:** Milestone 1 (38.46% Verified Complete — 5/13)
+- **Current Milestone:** Milestone 1 (46.15% Verified Complete — 6/13)
 - **Next Immediate Action:** Phase 5 Completion (Admissions Counseling & CRM) or Phase 7 Completion (Tuition Installments & EMI)
 
 ---
@@ -30,8 +30,8 @@
   - Hierarchical courses, modules, and lessons catalog, previewable lessons gate (13 backend course tests).
 - [ ] **Phase 5: Admissions Funnel & CRM Lead Pipeline**
   - *Status:* **PARTIALLY COMPLETE**. Lead capture form and applications table implemented; counseling booking engine and CRM admin review portal pending.
-- [ ] **Phase 6: Student Profile & Academic Onboarding**
-  - *Status:* **PARTIALLY COMPLETE**. Flyway V11 & V12 schema, multi-step onboarding wizard at `/portal/student/onboarding`, avatar magic-byte & ClamAV scanning engine with fail-closed security, authoritative legal agreements (TOS, AIA, COC) with SHA-256 verification and immutable clickwrap e-signature audit trail, automatic student enrollment activation to `ACTIVE`, and backend video playback gate (`403 Forbidden`). (See Report 44 and `PHASE_6B_FINAL_RECOVERY_REPORT.md`; classified as `PARTIALLY_COMPLETE` pending live AWS S3 multi-part binary bucket credentials in production/staging environment).
+- [x] **Phase 6: Student Profile & Academic Onboarding**
+  - *Status:* **VERIFIED COMPLETE**. Flyway V11–V13 schema, multi-step onboarding wizard at `/portal/student/onboarding`, avatar magic-byte & ClamAV scanning engine with null-terminated protocol and fail-closed security, real AWS SigV4 pre-signing with MinIO integration tests, authoritative legal agreements (TOS, AIA, COC) with tenant scoping and SHA-256 verification, automatic student enrollment activation to `ACTIVE`, and backend video playback gate (`403 Forbidden`). (See Report 44 and `PHASE_6B_FINAL_RECOVERY_REPORT.md`).
 - [ ] **Phase 7: Tuition Billing, Installments & Payment Gateway Integration**
   - *Status:* **PARTIALLY COMPLETE**. Upfront test payment gateway and webhook replay defense implemented; recurring installment plans (EMI) and PDF invoices pending.
 - [ ] **Phase 8: Cohort Batch Scheduler & Timetable Engine**
@@ -43,7 +43,7 @@
 - [ ] **Phase 11: Modular Curriculum Video Player & Progress Tracking**
   - *Status:* **PARTIALLY COMPLETE**. `MediaStorageService`, path traversal defense, RFC 7233 byte-range streaming, keyboard shortcuts, accurate watch-time accumulation ($\ge 80\%$ duration viewing rule), and server-side session heartbeats verified (15 frontend tests, 127 backend CI tests); video bookmarking, transcript drawer, and HLS streaming pending.
 - [ ] **Phase 12: End-to-End MVP Milestone Release Gate & Validation**
-  - *Status:* **BLOCKED**. Blocked by incomplete prerequisites in Phases 5, 6, 7, 8, 9, 10, and 11.
+  - *Status:* **BLOCKED**. Blocked by incomplete prerequisites in Phases 5, 7, 8, 9, 10, and 11.
 
 ---
 

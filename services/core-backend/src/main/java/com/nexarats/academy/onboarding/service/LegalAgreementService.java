@@ -74,7 +74,10 @@ public class LegalAgreementService {
         return applicableAgreements.stream()
                 .map(ag -> {
                     StudentAgreementAcceptance acc = acceptanceMap.get(ag.getId());
-                    boolean accepted = acc != null && ag.getVersion().equalsIgnoreCase(acc.getAgreementVersion());
+                    boolean accepted = acc != null
+                            && !acc.isLegacyUnverified()
+                            && ag.getVersion().equalsIgnoreCase(acc.getAgreementVersion())
+                            && ag.getContentHash().equalsIgnoreCase(acc.getContentHash());
                     Instant acceptedAt = (acc != null && accepted) ? acc.getAcceptedAt() : null;
                     return LegalAgreementDto.fromEntity(ag, accepted, acceptedAt);
                 })

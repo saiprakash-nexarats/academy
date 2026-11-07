@@ -11,6 +11,7 @@ import type {
   LegalAgreementDto,
   AvatarUploadResponse,
   CompleteOnboardingResponse,
+  OnboardingStatusResponse,
 } from '@nexarats/api-contracts'
 import { useAuth } from '@/context'
 import {
@@ -45,6 +46,7 @@ export const OnboardingWizard: React.FC = () => {
   const [isSavingDraft, setIsSavingDraft] = useState<boolean>(false)
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null)
   const [completedSuccess, setCompletedSuccess] = useState<CompleteOnboardingResponse | null>(null)
+  const [onboardingStatus, setOnboardingStatus] = useState<OnboardingStatusResponse | null>(null)
 
   // Wizard state
   const [studentInfo, setStudentInfo] = useState<StudentInfoData>({
@@ -113,9 +115,12 @@ export const OnboardingWizard: React.FC = () => {
           setAgreements(agreementsResp)
         }
 
-        // If student is already completed, go to step 5
-        if (statusResp && statusResp.overallStatus === 'COMPLETED') {
-          setCurrentStep(5)
+        if (statusResp) {
+          setOnboardingStatus(statusResp)
+          // If student is already completed, go to step 5
+          if (statusResp.overallStatus === 'COMPLETED') {
+            setCurrentStep(5)
+          }
         }
       } catch (err) {
         console.error('Failed to load onboarding wizard data:', err)
@@ -399,6 +404,9 @@ export const OnboardingWizard: React.FC = () => {
             avatarUrl={avatarUrl}
             agreements={agreements}
             token={accessToken}
+            activeEnrollmentStatus={onboardingStatus?.activeEnrollmentStatus}
+            canActivateBackend={onboardingStatus?.canActivate}
+            blockingReasons={onboardingStatus?.blockingReasons}
             onActivated={handleActivated}
             onJumpToStep={setCurrentStep}
           />

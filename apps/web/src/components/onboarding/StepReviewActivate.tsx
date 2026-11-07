@@ -20,6 +20,9 @@ interface StepReviewActivateProps {
   avatarUrl: string | null
   agreements: LegalAgreementDto[]
   token?: string | null
+  activeEnrollmentStatus?: string | null
+  canActivateBackend?: boolean
+  blockingReasons?: string[]
   onActivated: (resp: CompleteOnboardingResponse) => void
   onJumpToStep: (step: number) => void
 }
@@ -30,6 +33,9 @@ export const StepReviewActivate: React.FC<StepReviewActivateProps> = ({
   avatarUrl,
   agreements,
   token,
+  activeEnrollmentStatus,
+  canActivateBackend,
+  blockingReasons,
   onActivated,
   onJumpToStep,
 }) => {
@@ -40,8 +46,10 @@ export const StepReviewActivate: React.FC<StepReviewActivateProps> = ({
   const isDevLinkValid = Boolean(devProfile.githubUrl.trim() || devProfile.linkedinUrl.trim())
   const isAvatarValid = Boolean(avatarUrl)
   const areAgreementsValid = agreements.length > 0 && agreements.every((a) => a.isAccepted)
+  const isEnrollmentEligible = activeEnrollmentStatus === undefined || activeEnrollmentStatus === 'ENROLLED'
+  const isBackendEligible = canActivateBackend !== undefined ? canActivateBackend : true
 
-  const canActivate = isProfileValid && isDevLinkValid && isAvatarValid && areAgreementsValid
+  const canActivate = isProfileValid && isDevLinkValid && isAvatarValid && areAgreementsValid && isEnrollmentEligible && isBackendEligible
 
   const handleActivate = async () => {
     if (!canActivate || isActivating) return
@@ -208,6 +216,21 @@ export const StepReviewActivate: React.FC<StepReviewActivateProps> = ({
           </div>
         )}
       </div>
+
+      {/* Backend Blocking Reasons Display */}
+      {blockingReasons && blockingReasons.length > 0 && !canActivate && (
+        <div className="p-3.5 bg-amber-50 border border-amber-200 text-amber-900 rounded-xl text-xs space-y-1">
+          <div className="flex items-center gap-2 font-semibold">
+            <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+            <span>Profile Activation Requirements Remaining:</span>
+          </div>
+          <ul className="list-disc pl-6 space-y-0.5 text-amber-800">
+            {blockingReasons.map((reason, idx) => (
+              <li key={idx}>{reason}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Activation Error Display */}
       {activationError && (

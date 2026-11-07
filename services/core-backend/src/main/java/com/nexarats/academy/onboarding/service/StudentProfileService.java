@@ -11,8 +11,10 @@ import com.nexarats.academy.onboarding.repository.AvatarAssetRepository;
 import com.nexarats.academy.onboarding.repository.StudentProfileRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Optional;
 import java.util.UUID;
@@ -87,6 +89,21 @@ public class StudentProfileService {
 
     @Transactional
     public StudentProfile linkAvatarAsset(UUID tenantId, UUID userId, UUID avatarAssetId) {
+        if (avatarAssetId != null) {
+            AvatarAsset newAsset = avatarAssetRepository.findById(avatarAssetId)
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Avatar asset not found: " + avatarAssetId));
+            if (!newAsset.getUserId().equals(userId)) {
+                log.warn("Cross-user avatar linking rejected: user {} tried to link asset {} belonging to user {}",
+                        userId, avatarAssetId, newAsset.getUserId());
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Cannot link an avatar asset owned by another user.");
+            }
+            if (newAsset.getTenantId() != null && !newAsset.getTenantId().equals(tenantId)) {
+                log.warn("Cross-tenant avatar linking rejected: tenant {} tried to link asset {} from tenant {}",
+                        tenantId, avatarAssetId, newAsset.getTenantId());
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Cannot link an avatar asset from another tenant.");
+            }
+        }
+
         StudentProfile profile = getOrCreateProfile(tenantId, userId);
         UUID oldAssetId = profile.getAvatarAssetId();
 

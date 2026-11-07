@@ -250,7 +250,9 @@ public class LearningController {
             @AuthenticationPrincipal UserPrincipal principal
     ) {
         assertAuthenticated(principal);
-        PlaybackSessionResponse resp = playbackService.createPlaybackSession(principal.getUserId(), lessonId, principal.getTenantId());
+        PlaybackSessionResponse resp = playbackService.createPlaybackSession(
+                principal.getUserId(), lessonId, principal.getTenantId(), principal.getRoles()
+        );
         return ResponseEntity.ok(resp);
     }
 
@@ -261,7 +263,9 @@ public class LearningController {
             @AuthenticationPrincipal UserPrincipal principal
     ) {
         assertAuthenticated(principal);
-        PlaybackCheckpointResponse resp = progressService.recordCheckpoint(principal.getUserId(), lessonId, request, principal.getTenantId());
+        PlaybackCheckpointResponse resp = progressService.recordCheckpoint(
+                principal.getUserId(), lessonId, request, principal.getTenantId(), principal.getRoles()
+        );
         return ResponseEntity.ok(resp);
     }
 

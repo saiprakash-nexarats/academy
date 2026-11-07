@@ -61,7 +61,15 @@ nexarats:
     cookie:
       secure: ${COOKIE_SECURE:false}
   storage:
+    provider: ${STORAGE_PROVIDER:LOCAL_STORAGE}
     avatar-upload-dir: ${AVATAR_UPLOAD_DIR:target/avatars}
+    s3:
+      bucket: ${NEXARATS_STORAGE_S3_BUCKET:nexarats-academy-avatars}
+      region: ${NEXARATS_STORAGE_S3_REGION:us-east-1}
+      endpoint: ${NEXARATS_STORAGE_S3_ENDPOINT:}
+      access-key: ${NEXARATS_STORAGE_S3_ACCESS_KEY:minio_admin}
+      secret-key: ${NEXARATS_STORAGE_S3_SECRET_KEY:minio_secret_dev}
+      path-style-access-enabled: ${NEXARATS_STORAGE_S3_PATH_STYLE:true}
   clamav:
     host: ${CLAMAV_HOST:localhost}
     port: ${CLAMAV_PORT:3310}

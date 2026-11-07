@@ -18,9 +18,13 @@ import com.nexarats.academy.identity.service.AuthService;
 import com.nexarats.academy.identity.service.RateLimitingService;
 import com.nexarats.academy.onboarding.dto.AcceptAgreementRequest;
 import com.nexarats.academy.onboarding.dto.UpdateProfileRequest;
+import com.nexarats.academy.onboarding.model.AvatarAsset;
 import com.nexarats.academy.onboarding.model.LegalAgreement;
+import com.nexarats.academy.onboarding.model.LegalAgreementType;
+import com.nexarats.academy.onboarding.repository.AvatarAssetRepository;
 import com.nexarats.academy.onboarding.repository.LegalAgreementRepository;
 import com.nexarats.academy.onboarding.service.AvatarMalwareScanningService;
+import com.nexarats.academy.onboarding.service.StudentProfileService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -83,6 +87,12 @@ public class StudentOnboardingIntegrationTests {
 
     @Autowired
     private LegalAgreementRepository legalAgreementRepository;
+
+    @Autowired
+    private AvatarAssetRepository avatarAssetRepository;
+
+    @Autowired
+    private StudentProfileService studentProfileService;
 
     @Autowired
     private CourseRepository courseRepository;
@@ -377,5 +387,67 @@ public class StudentOnboardingIntegrationTests {
 
         mockMvc.perform(post("/api/v1/onboarding/complete"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("Data Security: Multiple tenants can publish version '1.0' agreements independently without unique constraint collisions")
+    void testMultipleTenantsCanPublishSameVersionAgreements() {
+        UUID tenantA = UUID.randomUUID();
+        UUID tenantB = UUID.randomUUID();
+
+        LegalAgreement agreementA = new LegalAgreement(
+                tenantA,
+                LegalAgreementType.TERMS_OF_SERVICE,
+                "1.0",
+                "Tenant A Terms of Service",
+                "Tenant A custom legal content",
+                "a1b2c3d4e5f60000000000000000000000000000000000000000000000000001"
+        );
+
+        LegalAgreement agreementB = new LegalAgreement(
+                tenantB,
+                LegalAgreementType.TERMS_OF_SERVICE,
+                "1.0",
+                "Tenant B Terms of Service",
+                "Tenant B custom legal content",
+                "b1b2c3d4e5f60000000000000000000000000000000000000000000000000002"
+        );
+
+        LegalAgreement savedA = legalAgreementRepository.save(agreementA);
+        LegalAgreement savedB = legalAgreementRepository.save(agreementB);
+
+        assertThat(savedA.getId()).isNotNull();
+        assertThat(savedB.getId()).isNotNull();
+        assertThat(savedA.getVersion()).isEqualTo("1.0");
+        assertThat(savedB.getVersion()).isEqualTo("1.0");
+        assertThat(savedA.getTenantId()).isEqualTo(tenantA);
+        assertThat(savedB.getTenantId()).isEqualTo(tenantB);
+    }
+
+    @Test
+    @DisplayName("Data Security: Cross-tenant and cross-user avatar linking is strictly rejected (403 Forbidden)")
+    void testCrossTenantAndCrossUserAvatarLinkingRejected() {
+        UUID tenantA = UUID.randomUUID();
+        UUID tenantB = UUID.randomUUID();
+        UUID userA = UUID.randomUUID();
+        UUID userB = UUID.randomUUID();
+
+        // Create avatar owned by userA in tenantA
+        AvatarAsset assetA = new AvatarAsset(tenantA, userA, "avatars/tA/uA/1.png", "1.png", "image/png", 1024);
+        assetA = avatarAssetRepository.save(assetA);
+
+        final UUID assetId = assetA.getId();
+
+        // User B in tenant A tries to link User A's avatar
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                studentProfileService.linkAvatarAsset(tenantA, userB, assetId)
+        ).isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .hasMessageContaining("Cannot link an avatar asset owned by another user");
+
+        // User A in tenant B tries to link avatar from tenant A
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                studentProfileService.linkAvatarAsset(tenantB, userA, assetId)
+        ).isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .hasMessageContaining("Cannot link an avatar asset from another tenant");
     }
 }

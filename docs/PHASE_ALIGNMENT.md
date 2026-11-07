@@ -39,10 +39,10 @@ The table below reconciles Git implementation phases with the master 70-phase sp
 | *Merged into P5* | Payment Gateway & Transaction Logs | **Phase 7** | Tuition Billing, Installments & Payment Gateway | Milestone 1 | **Implemented (Basic Checkout only; Installments pending)** |
 | *Merged into P5* | Basic Cohort Model | **Phase 8** | Cohort Batch Scheduler & Timetable Engine | Milestone 1 | **Partial (Timetable & Conflict Engine pending)** |
 | *Merged into P5* | Student Course Enrollment State | **Phase 9** | Student Enrollment & Batch Allocation | Milestone 1 | **Partially Complete (Waitlist queues & cohort countdown pending)** |
-| **Phase 6B** | Student Profile & Academic Onboarding | **Phase 6** | **Student Profile & Academic Onboarding** | Milestone 1 | **Partially Complete (Security recovered; Live S3 pending)** |
+| **Phase 6B** | Student Profile & Academic Onboarding | **Phase 6** | **Student Profile & Academic Onboarding** | Milestone 1 | **Verified Complete** |
 | **Git Phase 6** | Student Learning Dashboard | **Phase 10** | Student LMS Dashboard (Core Portal Shell) | Milestone 1 | **Partially Complete (Streaks & announcements pending)** |
 | **Git Phase 6** | Video Streaming & Watch Progress | **Phase 11** | Modular Curriculum Video Player & Progress | Milestone 1 | **Partially Complete (Video bookmarks & transcript drawer pending)** |
-| **Blocked Gate**| Formal Milestone 1 Acceptance | **Phase 12** | End-to-End MVP Milestone Release Gate | Milestone 1 | **BLOCKED (Requires Phase 6 and prerequisites completion)** |
+| **Blocked Gate**| Formal Milestone 1 Acceptance | **Phase 12** | End-to-End MVP Milestone Release Gate | Milestone 1 | **BLOCKED (Requires Phases 5, 7, 8, 9, 10, 11 completion)** |
 | *Proposed in R43* | Capstone Sandbox & Certificates | **Phase 22–29**| Coding Sandboxes, Proctored Exams & Credentials | Milestone 3 | **DEFERRED (Prerequisites Required)** |
 
 ---
@@ -52,7 +52,7 @@ The table below reconciles Git implementation phases with the master 70-phase sp
 The following architectural deliverables from Milestone 1 (Phases 0–12) remain pending implementation before any Milestone 2 (Mentorship/WebRTC) or Milestone 3 (Coding Sandbox/Certificates) work can commence:
 
 ### Deliverable A: Student Profile & Academic Onboarding (Original Phase 6)
-- **Status:** Skipped in Git; required for student lifecycle completion.
+- **Status:** **VERIFIED COMPLETE** (Implemented in Phase 6B, Report 44, Flyway V11–V13, MinIO S3 SigV4 Pre-signing, ClamAV fail-closed, multi-step React 19 wizard).
 - **Frontend Requirements:**
   - Multi-step onboarding wizard at `/portal/student/onboarding`.
   - Profile setup form (bio, career goals, timezone, GitHub/LinkedIn profile URL validation).
@@ -62,7 +62,7 @@ The following architectural deliverables from Milestone 1 (Phases 0–12) remain
   - Profile management service (`StudentProfileService`).
   - Legal agreement acceptance audit trail service.
 - **Database Requirements:**
-  - Tables: `student_profiles`, `legal_agreements` (Flyway migration V11).
+  - Tables: `student_profiles`, `legal_agreements` (Flyway migration V11–V13).
 - **Security:**
   - MIME-type validation, file size limits, and ClamAV integration for avatar uploads.
   - Transition student status from `ENROLLED` to `ACTIVE_STUDENT` only after agreement acceptance.

@@ -49,16 +49,6 @@ public class VideoPlaybackService {
     @Value("${nexarats.learning.media.demo-fallback-enabled:true}")
     private boolean demoFallbackEnabled;
 
-    public VideoPlaybackService(LearnerEntitlementService entitlementService,
-                                LessonMediaAssetRepository mediaAssetRepository,
-                                PlaybackSessionRepository playbackSessionRepository,
-                                LearnerLessonProgressRepository lessonProgressRepository,
-                                EnrollmentRepository enrollmentRepository,
-                                MediaStorageService mediaStorageService) {
-        this(entitlementService, mediaAssetRepository, playbackSessionRepository,
-                lessonProgressRepository, enrollmentRepository, mediaStorageService, null);
-    }
-
     @Autowired
     public VideoPlaybackService(LearnerEntitlementService entitlementService,
                                 LessonMediaAssetRepository mediaAssetRepository,
@@ -66,27 +56,65 @@ public class VideoPlaybackService {
                                 LearnerLessonProgressRepository lessonProgressRepository,
                                 EnrollmentRepository enrollmentRepository,
                                 MediaStorageService mediaStorageService,
-                                @Autowired(required = false) StudentProfileRepository studentProfileRepository) {
-        this.entitlementService = entitlementService;
-        this.mediaAssetRepository = mediaAssetRepository;
-        this.playbackSessionRepository = playbackSessionRepository;
-        this.lessonProgressRepository = lessonProgressRepository;
-        this.enrollmentRepository = enrollmentRepository;
-        this.mediaStorageService = mediaStorageService;
-        this.studentProfileRepository = studentProfileRepository;
+                                StudentProfileRepository studentProfileRepository) {
+        this.entitlementService = java.util.Objects.requireNonNull(entitlementService, "entitlementService must not be null");
+        this.mediaAssetRepository = java.util.Objects.requireNonNull(mediaAssetRepository, "mediaAssetRepository must not be null");
+        this.playbackSessionRepository = java.util.Objects.requireNonNull(playbackSessionRepository, "playbackSessionRepository must not be null");
+        this.lessonProgressRepository = java.util.Objects.requireNonNull(lessonProgressRepository, "lessonProgressRepository must not be null");
+        this.enrollmentRepository = java.util.Objects.requireNonNull(enrollmentRepository, "enrollmentRepository must not be null");
+        this.mediaStorageService = java.util.Objects.requireNonNull(mediaStorageService, "mediaStorageService must not be null");
+        this.studentProfileRepository = java.util.Objects.requireNonNull(studentProfileRepository, "studentProfileRepository must not be null");
+    }
+
+    private boolean isStaffOrAdmin(java.util.Collection<String> roles) {
+        if (roles == null || roles.isEmpty()) {
+            return false;
+        }
+        return roles.stream().anyMatch(r -> {
+            String role = r.toUpperCase();
+            return role.equals("ROLE_SUPER_ADMIN")
+                    || role.equals("SUPER_ADMIN")
+                    || role.equals("ROLE_ACADEMY_ADMIN")
+                    || role.equals("ACADEMY_ADMIN")
+                    || role.equals("ROLE_ADMIN")
+                    || role.equals("ADMIN")
+                    || role.equals("ROLE_INSTRUCTOR")
+                    || role.equals("INSTRUCTOR")
+                    || role.equals("ROLE_MENTOR")
+                    || role.equals("MENTOR");
+        });
     }
 
     @Transactional
     public PlaybackSessionResponse createPlaybackSession(UUID learnerUserId, UUID lessonId) {
-        return createPlaybackSession(learnerUserId, lessonId, null);
+        return createPlaybackSession(learnerUserId, lessonId, null, null);
     }
 
     @Transactional
     public PlaybackSessionResponse createPlaybackSession(UUID learnerUserId, UUID lessonId, UUID tenantId) {
-        // Enforce onboarding access control: If student has an incomplete onboarding profile, deny playback session
-        if (studentProfileRepository != null && tenantId != null) {
+        return createPlaybackSession(learnerUserId, lessonId, tenantId, null);
+    }
+
+    @Transactional
+    public PlaybackSessionResponse createPlaybackSession(UUID learnerUserId, UUID lessonId, UUID tenantId, java.util.Collection<String> roles) {
+        if (learnerUserId == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User must be authenticated for playback session.");
+        }
+        if (tenantId == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Tenant context required for playback session.");
+        }
+
+        // Enforce onboarding access control:
+        // Staff/instructors/administrators are explicitly exempted when previewing/testing content.
+        // For student learners, academic onboarding profile MUST exist and be COMPLETED.
+        if (!isStaffOrAdmin(roles)) {
             Optional<StudentProfile> profileOpt = studentProfileRepository.findByTenantIdAndUserId(tenantId, learnerUserId);
-            if (profileOpt.isPresent() && profileOpt.get().getOnboardingStatus() != OnboardingStatus.COMPLETED) {
+            if (profileOpt.isEmpty()) {
+                log.warn("Learner {} denied playback session: No student profile found for tenant {}", learnerUserId, tenantId);
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                        "Student academic onboarding must be completed before accessing course playback sessions.");
+            }
+            if (profileOpt.get().getOnboardingStatus() != OnboardingStatus.COMPLETED) {
                 log.warn("Learner {} denied playback session: Academic onboarding is incomplete (status={})",
                         learnerUserId, profileOpt.get().getOnboardingStatus());
                 throw new ResponseStatusException(HttpStatus.FORBIDDEN,
@@ -174,6 +202,35 @@ public class VideoPlaybackService {
         if (enrollment.getStatus() != EnrollmentStatus.ENROLLED && enrollment.getStatus() != EnrollmentStatus.ACTIVE) {
             log.warn("Media stream denied: Enrollment {} is in status {}", enrollment.getId(), enrollment.getStatus());
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Enrollment is no longer active for playback.");
+        }
+
+        UUID learnerUserId = session.getLearnerUserId();
+        if (!enrollment.getLearnerUserId().equals(learnerUserId)) {
+            log.warn("Media stream denied: Session learner {} does not match enrollment learner {}", learnerUserId, enrollment.getLearnerUserId());
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Playback session does not match enrollment user.");
+        }
+
+        UUID tenantId = enrollment.getTenantId();
+        if (tenantId == null) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Enrollment tenant context missing.");
+        }
+
+        // Re-verify that learner entitlement has not been revoked since session creation
+        try {
+            entitlementService.verifyLessonEntitlement(learnerUserId, session.getLessonId(), tenantId);
+        } catch (Exception ex) {
+            log.warn("Media stream denied: Entitlement verification failed for session {} (learner={}): {}",
+                    sessionToken, learnerUserId, ex.getMessage());
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Learner entitlement has been revoked or expired.");
+        }
+
+        // Check onboarding validity on existing playback session:
+        // Incomplete student profiles cannot continue streaming
+        Optional<StudentProfile> profileOpt = studentProfileRepository.findByTenantIdAndUserId(tenantId, learnerUserId);
+        if (profileOpt.isPresent() && profileOpt.get().getOnboardingStatus() != OnboardingStatus.COMPLETED) {
+            log.warn("Media stream denied: Academic onboarding incomplete for learner {} in tenant {}", learnerUserId, tenantId);
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Student academic onboarding must be completed before streaming course media.");
         }
 
         // Resolve LessonMediaAsset

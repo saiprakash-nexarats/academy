@@ -277,4 +277,99 @@ class StudentOnboardingServiceTest {
         verify(userRepository, times(1)).save(user);
         assertThat(user.getAvatarUrl()).isEqualTo("/api/v1/onboarding/avatar/" + avatarId);
     }
+
+    @Test
+    @DisplayName("Readiness Consistency: canActivate is FALSE when profile is complete but enrollment is missing in tenant")
+    void statusCanActivateFalseWhenEnrollmentMissing() {
+        UUID avatarId = UUID.randomUUID();
+        StudentProfile profile = createCompleteProfile(avatarId);
+        AvatarAsset asset = new AvatarAsset();
+        asset.setId(avatarId);
+        asset.setScanStatus(ScanStatus.CLEAN);
+
+        when(profileRepository.findByTenantIdAndUserId(tenantId, userId)).thenReturn(Optional.of(profile));
+        when(avatarAssetRepository.findById(avatarId)).thenReturn(Optional.of(asset));
+        when(legalAgreementService.areAllMandatoryAgreementsAccepted(eq(tenantId), eq(userId), any())).thenReturn(true);
+        when(enrollmentRepository.findByLearnerUserIdOrderByEnrolledAtDesc(userId)).thenReturn(Collections.emptyList());
+
+        OnboardingStatusResponse status = onboardingService.getOnboardingStatus(tenantId, userId);
+
+        assertThat(status.canActivate()).isFalse();
+        assertThat(status.blockingReasons()).anyMatch(r -> r.contains("No enrollment found"));
+    }
+
+    @Test
+    @DisplayName("Readiness Consistency: canActivate is FALSE when enrollment has null tenantId")
+    void statusCanActivateFalseWhenEnrollmentHasNullTenant() {
+        UUID avatarId = UUID.randomUUID();
+        StudentProfile profile = createCompleteProfile(avatarId);
+        AvatarAsset asset = new AvatarAsset();
+        asset.setId(avatarId);
+        asset.setScanStatus(ScanStatus.CLEAN);
+
+        Enrollment nullTenantEnrollment = new Enrollment();
+        nullTenantEnrollment.setId(UUID.randomUUID());
+        nullTenantEnrollment.setTenantId(null);
+        nullTenantEnrollment.setStatus(EnrollmentStatus.ENROLLED);
+
+        when(profileRepository.findByTenantIdAndUserId(tenantId, userId)).thenReturn(Optional.of(profile));
+        when(avatarAssetRepository.findById(avatarId)).thenReturn(Optional.of(asset));
+        when(legalAgreementService.areAllMandatoryAgreementsAccepted(eq(tenantId), eq(userId), any())).thenReturn(true);
+        when(enrollmentRepository.findByLearnerUserIdOrderByEnrolledAtDesc(userId)).thenReturn(List.of(nullTenantEnrollment));
+
+        OnboardingStatusResponse status = onboardingService.getOnboardingStatus(tenantId, userId);
+
+        assertThat(status.canActivate()).isFalse();
+        assertThat(status.blockingReasons()).anyMatch(r -> r.contains("No enrollment found"));
+    }
+
+    @Test
+    @DisplayName("Readiness Consistency: canActivate is FALSE when tenant enrollment is SUSPENDED")
+    void statusCanActivateFalseWhenEnrollmentSuspended() {
+        UUID avatarId = UUID.randomUUID();
+        StudentProfile profile = createCompleteProfile(avatarId);
+        AvatarAsset asset = new AvatarAsset();
+        asset.setId(avatarId);
+        asset.setScanStatus(ScanStatus.CLEAN);
+
+        Enrollment suspendedEnrollment = new Enrollment();
+        suspendedEnrollment.setId(UUID.randomUUID());
+        suspendedEnrollment.setTenantId(tenantId);
+        suspendedEnrollment.setStatus(EnrollmentStatus.SUSPENDED);
+
+        when(profileRepository.findByTenantIdAndUserId(tenantId, userId)).thenReturn(Optional.of(profile));
+        when(avatarAssetRepository.findById(avatarId)).thenReturn(Optional.of(asset));
+        when(legalAgreementService.areAllMandatoryAgreementsAccepted(eq(tenantId), eq(userId), any())).thenReturn(true);
+        when(enrollmentRepository.findByLearnerUserIdOrderByEnrolledAtDesc(userId)).thenReturn(List.of(suspendedEnrollment));
+
+        OnboardingStatusResponse status = onboardingService.getOnboardingStatus(tenantId, userId);
+
+        assertThat(status.canActivate()).isFalse();
+        assertThat(status.blockingReasons()).anyMatch(r -> r.contains("SUSPENDED"));
+    }
+
+    @Test
+    @DisplayName("Readiness Consistency: canActivate is TRUE when profile, dev links, clean avatar, agreements, and ENROLLED status all exist")
+    void statusCanActivateTrueWhenAllPrerequisitesSatisfied() {
+        UUID avatarId = UUID.randomUUID();
+        StudentProfile profile = createCompleteProfile(avatarId);
+        AvatarAsset asset = new AvatarAsset();
+        asset.setId(avatarId);
+        asset.setScanStatus(ScanStatus.CLEAN);
+
+        Enrollment validEnrollment = new Enrollment();
+        validEnrollment.setId(UUID.randomUUID());
+        validEnrollment.setTenantId(tenantId);
+        validEnrollment.setStatus(EnrollmentStatus.ENROLLED);
+
+        when(profileRepository.findByTenantIdAndUserId(tenantId, userId)).thenReturn(Optional.of(profile));
+        when(avatarAssetRepository.findById(avatarId)).thenReturn(Optional.of(asset));
+        when(legalAgreementService.areAllMandatoryAgreementsAccepted(eq(tenantId), eq(userId), any())).thenReturn(true);
+        when(enrollmentRepository.findByLearnerUserIdOrderByEnrolledAtDesc(userId)).thenReturn(List.of(validEnrollment));
+
+        OnboardingStatusResponse status = onboardingService.getOnboardingStatus(tenantId, userId);
+
+        assertThat(status.canActivate()).isTrue();
+        assertThat(status.blockingReasons()).isEmpty();
+    }
 }
