@@ -124,6 +124,16 @@ jobs:
       - name: Run Unit, Context & Modulith Architecture Tests
         run: mvn test
 
+      - name: Print Test Failures on Failure
+        if: failure()
+        run: |
+          for f in target/surefire-reports/*.txt; do
+            if grep -qE "FAILURE|ERROR" "$f"; then
+              echo "=== Failure in $f ==="
+              cat "$f"
+            fi
+          done
+
       - name: Archive Surefire Test Reports
         if: always()
         uses: actions/upload-artifact@v4

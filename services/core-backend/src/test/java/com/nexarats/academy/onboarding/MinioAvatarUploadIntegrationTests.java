@@ -42,11 +42,15 @@ import javax.imageio.ImageIO;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
+import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -55,6 +59,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
@@ -110,6 +116,8 @@ public class MinioAvatarUploadIntegrationTests {
     private int s3MockPort;
     private final Map<String, byte[]> s3Storage = new ConcurrentHashMap<>();
 
+    private ServerSocket mockClamAvServer;
+    private ExecutorService serverExecutor;
     private Cohort testCohort;
 
     @BeforeAll
@@ -126,7 +134,32 @@ public class MinioAvatarUploadIntegrationTests {
         s3MockServer.setExecutor(null);
         s3MockServer.start();
 
-        // 2. Configure AvatarStorageService to use the S3-compatible endpoint with path style access
+        // 2. Start mock ClamAV daemon socket fixture to verify live TCP stream scanning
+        mockClamAvServer = new ServerSocket(0);
+        int clamavPort = mockClamAvServer.getLocalPort();
+        malwareScanningService.setClamavHost("127.0.0.1");
+        malwareScanningService.setClamavPort(clamavPort);
+        malwareScanningService.setConnectionTimeoutMs(2000);
+        malwareScanningService.setSocketTimeoutMs(2000);
+
+        serverExecutor = Executors.newCachedThreadPool();
+        serverExecutor.submit(() -> {
+            while (!mockClamAvServer.isClosed()) {
+                try (Socket client = mockClamAvServer.accept()) {
+                    BufferedReader in = new BufferedReader(new InputStreamReader(client.getInputStream(), StandardCharsets.US_ASCII));
+                    OutputStream out = client.getOutputStream();
+                    char[] buf = new char[10];
+                    int r = in.read(buf, 0, 10);
+                    if (r > 0) {
+                        out.write("stream: OK\n".getBytes(StandardCharsets.US_ASCII));
+                        out.flush();
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+        });
+
+        // 3. Configure AvatarStorageService to use the S3-compatible endpoint with path style access
         avatarStorageService.configureS3(
                 "http://127.0.0.1:" + s3MockPort,
                 "nexarats-academy-avatars",
@@ -143,6 +176,12 @@ public class MinioAvatarUploadIntegrationTests {
     void tearDownS3Mock() {
         if (s3MockServer != null) {
             s3MockServer.stop(0);
+        }
+        if (mockClamAvServer != null && !mockClamAvServer.isClosed()) {
+            try { mockClamAvServer.close(); } catch (Exception ignored) {}
+        }
+        if (serverExecutor != null) {
+            serverExecutor.shutdownNow();
         }
     }
 
