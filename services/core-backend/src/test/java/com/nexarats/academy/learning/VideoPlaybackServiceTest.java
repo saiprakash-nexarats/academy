@@ -374,5 +374,26 @@ public class VideoPlaybackServiceTest {
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("Student academic onboarding must be completed before streaming course media");
     }
+
+    @Test
+    @DisplayName("Stream media is denied with 403 Forbidden if student profile record is deleted after session creation")
+    void testStreamMediaMissingProfileForbidden() {
+        String token = "vtok_missing_profile_token";
+        PlaybackSession session = new PlaybackSession(
+                token, learnerUserId, activeEnrollment.getId(), lessonId1, mediaAsset1.getId(), Instant.now().plus(1, ChronoUnit.HOURS)
+        );
+
+        when(playbackSessionRepository.findBySessionToken(token)).thenReturn(Optional.of(session));
+        when(enrollmentRepository.findById(activeEnrollment.getId())).thenReturn(Optional.of(activeEnrollment));
+        when(entitlementService.verifyLessonEntitlement(learnerUserId, lessonId1, tenantId))
+                .thenReturn(new LearnerEntitlementService.LessonAndEntitlement(lesson1, lesson1.getModule().getVersion().getCourse(), activeEnrollment));
+        when(studentProfileRepository.findByTenantIdAndUserId(eq(tenantId), eq(learnerUserId)))
+                .thenReturn(Optional.empty());
+
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        assertThatThrownBy(() -> videoPlaybackService.streamMedia(token, null, response))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("Student academic onboarding must be completed before streaming course media");
+    }
 }
 

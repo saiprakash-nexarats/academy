@@ -4,6 +4,8 @@ import com.nexarats.academy.academic.model.Lesson;
 import com.nexarats.academy.admissions.model.Enrollment;
 import com.nexarats.academy.admissions.model.EnrollmentStatus;
 import com.nexarats.academy.admissions.repository.EnrollmentRepository;
+import com.nexarats.academy.identity.repository.MembershipRoleRepository;
+import com.nexarats.academy.identity.repository.TenantMembershipRepository;
 import com.nexarats.academy.learning.dto.PlaybackSessionResponse;
 import com.nexarats.academy.learning.model.LearnerLessonProgress;
 import com.nexarats.academy.learning.model.LessonMediaAsset;
@@ -30,6 +32,8 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Collection;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -45,9 +49,22 @@ public class VideoPlaybackService {
     private final EnrollmentRepository enrollmentRepository;
     private final MediaStorageService mediaStorageService;
     private final StudentProfileRepository studentProfileRepository;
+    private final TenantMembershipRepository tenantMembershipRepository;
+    private final MembershipRoleRepository membershipRoleRepository;
 
     @Value("${nexarats.learning.media.demo-fallback-enabled:true}")
     private boolean demoFallbackEnabled;
+
+    public VideoPlaybackService(LearnerEntitlementService entitlementService,
+                                LessonMediaAssetRepository mediaAssetRepository,
+                                PlaybackSessionRepository playbackSessionRepository,
+                                LearnerLessonProgressRepository lessonProgressRepository,
+                                EnrollmentRepository enrollmentRepository,
+                                MediaStorageService mediaStorageService,
+                                StudentProfileRepository studentProfileRepository) {
+        this(entitlementService, mediaAssetRepository, playbackSessionRepository, lessonProgressRepository,
+                enrollmentRepository, mediaStorageService, studentProfileRepository, null, null);
+    }
 
     @Autowired
     public VideoPlaybackService(LearnerEntitlementService entitlementService,
@@ -56,33 +73,55 @@ public class VideoPlaybackService {
                                 LearnerLessonProgressRepository lessonProgressRepository,
                                 EnrollmentRepository enrollmentRepository,
                                 MediaStorageService mediaStorageService,
-                                StudentProfileRepository studentProfileRepository) {
-        this.entitlementService = java.util.Objects.requireNonNull(entitlementService, "entitlementService must not be null");
-        this.mediaAssetRepository = java.util.Objects.requireNonNull(mediaAssetRepository, "mediaAssetRepository must not be null");
-        this.playbackSessionRepository = java.util.Objects.requireNonNull(playbackSessionRepository, "playbackSessionRepository must not be null");
-        this.lessonProgressRepository = java.util.Objects.requireNonNull(lessonProgressRepository, "lessonProgressRepository must not be null");
-        this.enrollmentRepository = java.util.Objects.requireNonNull(enrollmentRepository, "enrollmentRepository must not be null");
-        this.mediaStorageService = java.util.Objects.requireNonNull(mediaStorageService, "mediaStorageService must not be null");
-        this.studentProfileRepository = java.util.Objects.requireNonNull(studentProfileRepository, "studentProfileRepository must not be null");
+                                StudentProfileRepository studentProfileRepository,
+                                @Autowired(required = false) TenantMembershipRepository tenantMembershipRepository,
+                                @Autowired(required = false) MembershipRoleRepository membershipRoleRepository) {
+        this.entitlementService = Objects.requireNonNull(entitlementService, "entitlementService must not be null");
+        this.mediaAssetRepository = Objects.requireNonNull(mediaAssetRepository, "mediaAssetRepository must not be null");
+        this.playbackSessionRepository = Objects.requireNonNull(playbackSessionRepository, "playbackSessionRepository must not be null");
+        this.lessonProgressRepository = Objects.requireNonNull(lessonProgressRepository, "lessonProgressRepository must not be null");
+        this.enrollmentRepository = Objects.requireNonNull(enrollmentRepository, "enrollmentRepository must not be null");
+        this.mediaStorageService = Objects.requireNonNull(mediaStorageService, "mediaStorageService must not be null");
+        this.studentProfileRepository = Objects.requireNonNull(studentProfileRepository, "studentProfileRepository must not be null");
+        this.tenantMembershipRepository = tenantMembershipRepository;
+        this.membershipRoleRepository = membershipRoleRepository;
     }
 
-    private boolean isStaffOrAdmin(java.util.Collection<String> roles) {
+    public boolean isStaffOrAdminRoleName(String roleName) {
+        if (roleName == null) return false;
+        String r = roleName.toUpperCase().trim();
+        return r.equals("ROLE_SUPER_ADMIN")
+                || r.equals("SUPER_ADMIN")
+                || r.equals("ROLE_ACADEMY_ADMIN")
+                || r.equals("ACADEMY_ADMIN")
+                || r.equals("ROLE_ADMIN")
+                || r.equals("ADMIN")
+                || r.equals("ROLE_INSTRUCTOR")
+                || r.equals("INSTRUCTOR")
+                || r.equals("ROLE_MENTOR")
+                || r.equals("MENTOR");
+    }
+
+    private boolean isStaffOrAdmin(Collection<String> roles) {
         if (roles == null || roles.isEmpty()) {
             return false;
         }
-        return roles.stream().anyMatch(r -> {
-            String role = r.toUpperCase();
-            return role.equals("ROLE_SUPER_ADMIN")
-                    || role.equals("SUPER_ADMIN")
-                    || role.equals("ROLE_ACADEMY_ADMIN")
-                    || role.equals("ACADEMY_ADMIN")
-                    || role.equals("ROLE_ADMIN")
-                    || role.equals("ADMIN")
-                    || role.equals("ROLE_INSTRUCTOR")
-                    || role.equals("INSTRUCTOR")
-                    || role.equals("ROLE_MENTOR")
-                    || role.equals("MENTOR");
-        });
+        return roles.stream().anyMatch(this::isStaffOrAdminRoleName);
+    }
+
+    private boolean isLearnerStaffOrAdmin(UUID tenantId, UUID userId) {
+        if (tenantMembershipRepository == null || membershipRoleRepository == null || tenantId == null || userId == null) {
+            return false;
+        }
+        try {
+            return tenantMembershipRepository.findByTenantIdAndUserId(tenantId, userId)
+                    .map(membership -> membershipRoleRepository.findByMembership(membership).stream()
+                            .anyMatch(mr -> mr.getRole() != null && isStaffOrAdminRoleName(mr.getRole().getName())))
+                    .orElse(false);
+        } catch (Exception e) {
+            log.debug("Error evaluating staff role membership for user {} in tenant {}: {}", userId, tenantId, e.getMessage());
+            return false;
+        }
     }
 
     @Transactional
@@ -96,7 +135,7 @@ public class VideoPlaybackService {
     }
 
     @Transactional
-    public PlaybackSessionResponse createPlaybackSession(UUID learnerUserId, UUID lessonId, UUID tenantId, java.util.Collection<String> roles) {
+    public PlaybackSessionResponse createPlaybackSession(UUID learnerUserId, UUID lessonId, UUID tenantId, Collection<String> roles) {
         if (learnerUserId == null) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User must be authenticated for playback session.");
         }
@@ -107,7 +146,8 @@ public class VideoPlaybackService {
         // Enforce onboarding access control:
         // Staff/instructors/administrators are explicitly exempted when previewing/testing content.
         // For student learners, academic onboarding profile MUST exist and be COMPLETED.
-        if (!isStaffOrAdmin(roles)) {
+        boolean exempt = isStaffOrAdmin(roles) || isLearnerStaffOrAdmin(tenantId, learnerUserId);
+        if (!exempt) {
             Optional<StudentProfile> profileOpt = studentProfileRepository.findByTenantIdAndUserId(tenantId, learnerUserId);
             if (profileOpt.isEmpty()) {
                 log.warn("Learner {} denied playback session: No student profile found for tenant {}", learnerUserId, tenantId);
@@ -169,8 +209,9 @@ public class VideoPlaybackService {
         );
         playbackSessionRepository.save(session);
 
-        String streamUrl = "/api/v1/learning/media/stream?token=" + token;
-        log.info("Created authorized playback session for learner {} on lesson {} (asset: {})", learnerUserId, lessonId, asset.getId());
+        String streamUrl = "/api/v1/learning/playback/stream?token=" + token;
+
+        log.info("Issued secure playback session {} for learner {} on lesson {}", token, learnerUserId, lessonId);
 
         return new PlaybackSessionResponse(
                 token,
@@ -224,13 +265,22 @@ public class VideoPlaybackService {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Learner entitlement has been revoked or expired.");
         }
 
-        // Check onboarding validity on existing playback session:
-        // Incomplete student profiles cannot continue streaming
-        Optional<StudentProfile> profileOpt = studentProfileRepository.findByTenantIdAndUserId(tenantId, learnerUserId);
-        if (profileOpt.isPresent() && profileOpt.get().getOnboardingStatus() != OnboardingStatus.COMPLETED) {
-            log.warn("Media stream denied: Academic onboarding incomplete for learner {} in tenant {}", learnerUserId, tenantId);
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                    "Student academic onboarding must be completed before streaming course media.");
+        // Check onboarding validity on active streaming:
+        // Staff/instructors/administrators are exempted when previewing/testing content.
+        // For students, onboarding profile MUST exist and be COMPLETED.
+        boolean exempt = isLearnerStaffOrAdmin(tenantId, learnerUserId);
+        if (!exempt) {
+            Optional<StudentProfile> profileOpt = studentProfileRepository.findByTenantIdAndUserId(tenantId, learnerUserId);
+            if (profileOpt.isEmpty()) {
+                log.warn("Media stream denied: No student profile found for learner {} in tenant {}", learnerUserId, tenantId);
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                        "Student academic onboarding must be completed before streaming course media.");
+            }
+            if (profileOpt.get().getOnboardingStatus() != OnboardingStatus.COMPLETED) {
+                log.warn("Media stream denied: Academic onboarding incomplete for learner {} in tenant {}", learnerUserId, tenantId);
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                        "Student academic onboarding must be completed before streaming course media.");
+            }
         }
 
         // Resolve LessonMediaAsset
@@ -270,62 +320,59 @@ public class VideoPlaybackService {
                 long start = 0;
                 long end = fileLength - 1;
 
-                int dashIndex = rangeValue.indexOf('-');
-                if (dashIndex != -1) {
-                    String startStr = rangeValue.substring(0, dashIndex).trim();
-                    String endStr = rangeValue.substring(dashIndex + 1).trim();
-
-                    if (!startStr.isEmpty()) {
-                        start = Long.parseLong(startStr);
+                if (rangeValue.contains("-")) {
+                    String[] parts = rangeValue.split("-", 2);
+                    if (!parts[0].isEmpty()) {
+                        start = Long.parseLong(parts[0]);
                     }
-                    if (!endStr.isEmpty()) {
-                        end = Long.parseLong(endStr);
+                    if (parts.length > 1 && !parts[1].isEmpty()) {
+                        end = Long.parseLong(parts[1]);
                     }
                 }
 
-                if (start > end || start >= fileLength) {
-                    response.setStatus(HttpStatus.REQUESTED_RANGE_NOT_SATISFIABLE.value());
+                if (start >= fileLength || end >= fileLength || start > end) {
+                    response.setStatus(HttpServletResponse.SC_REQUESTED_RANGE_NOT_SATISFIABLE);
                     response.setHeader("Content-Range", "bytes */" + fileLength);
                     return;
                 }
 
-                if (end >= fileLength) {
-                    end = fileLength - 1;
-                }
-
-                long rangeLength = end - start + 1;
-                response.setStatus(HttpStatus.PARTIAL_CONTENT.value());
-                response.setHeader("Content-Range", "bytes " + start + "-" + end + "/" + fileLength);
-                response.setHeader("Content-Length", String.valueOf(rangeLength));
+                long contentLength = end - start + 1;
+                response.setStatus(HttpServletResponse.SC_PARTIAL_CONTENT);
+                response.setHeader("Content-Range", String.format("bytes %d-%d/%d", start, end, fileLength));
+                response.setHeader("Content-Length", String.valueOf(contentLength));
 
                 try (InputStream in = mediaResource.getInputStream();
                      OutputStream out = response.getOutputStream()) {
                     long skipped = in.skip(start);
-                    byte[] buffer = new byte[8192];
-                    long bytesToRead = rangeLength;
-                    while (bytesToRead > 0) {
-                        int read = in.read(buffer, 0, (int) Math.min(buffer.length, bytesToRead));
-                        if (read == -1) break;
-                        out.write(buffer, 0, read);
-                        bytesToRead -= read;
+                    if (skipped < start) {
+                        log.warn("Could not skip exact bytes in stream: skipped={}, expected={}", skipped, start);
+                    }
+
+                    byte[] buffer = new byte[16384];
+                    long remaining = contentLength;
+                    int bytesRead;
+
+                    while (remaining > 0 && (bytesRead = in.read(buffer, 0, (int) Math.min(buffer.length, remaining))) != -1) {
+                        out.write(buffer, 0, bytesRead);
+                        remaining -= bytesRead;
                     }
                     out.flush();
                 }
             } else {
-                response.setStatus(HttpStatus.OK.value());
+                response.setStatus(HttpServletResponse.SC_OK);
                 response.setHeader("Content-Length", String.valueOf(fileLength));
                 try (InputStream in = mediaResource.getInputStream();
                      OutputStream out = response.getOutputStream()) {
-                    byte[] buffer = new byte[8192];
-                    int read;
-                    while ((read = in.read(buffer)) != -1) {
-                        out.write(buffer, 0, read);
+                    byte[] buffer = new byte[16384];
+                    int bytesRead;
+                    while ((bytesRead = in.read(buffer)) != -1) {
+                        out.write(buffer, 0, bytesRead);
                     }
                     out.flush();
                 }
             }
         } catch (IOException e) {
-            log.warn("Media streaming transfer interrupted: {}", e.getMessage());
+            log.warn("Playback streaming IO exception (likely client disconnect): {}", e.getMessage());
         }
     }
 }

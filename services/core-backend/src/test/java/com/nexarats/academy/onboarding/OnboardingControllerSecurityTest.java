@@ -4,6 +4,7 @@ import com.nexarats.academy.common.security.UserPrincipal;
 import com.nexarats.academy.onboarding.dto.*;
 import com.nexarats.academy.onboarding.model.*;
 import com.nexarats.academy.onboarding.repository.AvatarAssetRepository;
+import com.nexarats.academy.onboarding.repository.AvatarUploadTicketRepository;
 import com.nexarats.academy.onboarding.service.*;
 import com.nexarats.academy.onboarding.web.OnboardingController;
 import org.junit.jupiter.api.BeforeEach;
@@ -57,6 +58,9 @@ class OnboardingControllerSecurityTest {
     @Mock
     private AvatarAssetRepository avatarAssetRepository;
 
+    @Mock
+    private AvatarUploadTicketRepository uploadTicketRepository;
+
     private OnboardingController controller;
 
     private final UUID tenantId = UUID.randomUUID();
@@ -71,7 +75,8 @@ class OnboardingControllerSecurityTest {
                 avatarValidationService,
                 malwareScanningService,
                 storageService,
-                avatarAssetRepository
+                avatarAssetRepository,
+                uploadTicketRepository
         );
     }
 
@@ -266,13 +271,22 @@ class OnboardingControllerSecurityTest {
     void confirmPresignedUploadRejectsKeySpoofing() {
         UserPrincipal principal = createPrincipal(tenantId, userId, "ROLE_STUDENT");
         UUID otherUser = UUID.randomUUID();
-        ConfirmAvatarUploadRequest request = new ConfirmAvatarUploadRequest(
-                String.format("avatars/%s/%s/photo.jpg", tenantId, otherUser),
-                "photo.jpg"
+        String forgedKey = String.format("quarantine/avatars/%s/%s/photo.jpg", tenantId, otherUser);
+        ConfirmAvatarUploadRequest request = new ConfirmAvatarUploadRequest(forgedKey, "photo.jpg");
+
+        AvatarUploadTicket ticketOther = new AvatarUploadTicket(
+                tenantId,
+                otherUser,
+                forgedKey,
+                "photo.jpg",
+                "image/jpeg",
+                "jpg",
+                Instant.now().plusSeconds(900)
         );
+        when(uploadTicketRepository.findByQuarantineKey(forgedKey)).thenReturn(Optional.of(ticketOther));
 
         assertThatThrownBy(() -> controller.confirmPresignedUpload(request, principal))
                 .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("Invalid storage object key ownership");
+                .hasMessageContaining("Unauthorized upload ticket access");
     }
 }

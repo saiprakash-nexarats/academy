@@ -15,9 +15,11 @@ import com.nexarats.academy.identity.service.AuthService;
 import com.nexarats.academy.onboarding.dto.AvatarUploadResponse;
 import com.nexarats.academy.onboarding.dto.ConfirmAvatarUploadRequest;
 import com.nexarats.academy.onboarding.model.AvatarAsset;
+import com.nexarats.academy.onboarding.model.AvatarUploadTicket;
 import com.nexarats.academy.onboarding.model.ScanStatus;
 import com.nexarats.academy.onboarding.model.StudentProfile;
 import com.nexarats.academy.onboarding.repository.AvatarAssetRepository;
+import com.nexarats.academy.onboarding.repository.AvatarUploadTicketRepository;
 import com.nexarats.academy.onboarding.repository.StudentProfileRepository;
 import com.nexarats.academy.onboarding.service.AvatarMalwareScanningService;
 import com.nexarats.academy.onboarding.service.AvatarStorageService;
@@ -37,6 +39,10 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
+import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
 import javax.imageio.ImageIO;
 import java.awt.Color;
@@ -54,6 +60,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Map;
@@ -70,10 +77,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Real S3-Compatible / MinIO Avatar Upload Lifecycle Integration Test.
+ * Real S3-Compatible / MinIO Avatar Upload Lifecycle & Security Hardening Integration Test.
  *
- * Verifies the authoritative 6-stage lifecycle:
- * Pre-sign request -> Upload object via SigV4 PUT -> Fetch quarantined object -> Malware scan -> Approve -> Retrieve avatar.
+ * Verifies the authoritative quarantine-to-approved isolation lifecycle:
+ * 1. Pre-sign request creates single-use AvatarUploadTicket targeting quarantine key ONLY.
+ * 2. SigV4 HTTP PUT uploads directly to isolated quarantine storage.
+ * 3. S3 HEAD check validates object existence and strictly bounds size (<= 5MB).
+ * 4. Image dimensions and MIME magic bytes verified; ClamAV virus scan executed.
+ * 5. On approval, object is atomically promoted to an unguessable approved key; quarantine key is purged.
+ * 6. Pre-signed URL reuse defense: subsequent PUTs cannot overwrite approved avatar.
  */
 @SpringBootTest
 @ActiveProfiles("local")
@@ -104,6 +116,9 @@ public class MinioAvatarUploadIntegrationTests {
     private AvatarAssetRepository avatarAssetRepository;
 
     @Autowired
+    private AvatarUploadTicketRepository uploadTicketRepository;
+
+    @Autowired
     private AvatarStorageService avatarStorageService;
 
     @Autowired
@@ -112,6 +127,7 @@ public class MinioAvatarUploadIntegrationTests {
     @Autowired
     private ObjectMapper objectMapper;
 
+    private boolean usingLiveMinio = false;
     private HttpServer s3MockServer;
     private int s3MockPort;
     private final Map<String, byte[]> s3Storage = new ConcurrentHashMap<>();
@@ -126,25 +142,48 @@ public class MinioAvatarUploadIntegrationTests {
                 .apply(springSecurity())
                 .build();
 
-        // 1. Start embedded S3/MinIO compatible HTTP Server
-        s3MockServer = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        s3MockPort = s3MockServer.getAddress().getPort();
+        // 1. Detect if live MinIO container is available (e.g. running in CI environment)
+        String envEndpoint = System.getenv("NEXARATS_STORAGE_S3_ENDPOINT");
+        String targetEndpoint = (envEndpoint != null && !envEndpoint.isBlank()) ? envEndpoint : "http://localhost:9000";
+        try {
+            HttpClient pingClient = HttpClient.newBuilder().connectTimeout(Duration.ofMillis(800)).build();
+            HttpResponse<Void> pingResp = pingClient.send(
+                    HttpRequest.newBuilder().uri(URI.create(targetEndpoint + "/minio/health/live")).GET().build(),
+                    HttpResponse.BodyHandlers.discarding()
+            );
+            if (pingResp.statusCode() == 200) {
+                usingLiveMinio = true;
+            }
+        } catch (Exception ignored) {}
 
-        s3MockServer.createContext("/", new S3CompatibleHandler());
-        s3MockServer.setExecutor(null);
-        s3MockServer.start();
+        if (usingLiveMinio) {
+            avatarStorageService.configureS3(
+                    targetEndpoint,
+                    "nexarats-academy-avatars",
+                    "us-east-1",
+                    "minio_admin",
+                    "minio_secret_dev",
+                    true
+            );
+        } else {
+            // Start embedded S3/MinIO compatible HTTP Server
+            s3MockServer = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+            s3MockPort = s3MockServer.getAddress().getPort();
+            s3MockServer.createContext("/", new S3CompatibleHandler());
+            s3MockServer.setExecutor(null);
+            s3MockServer.start();
 
-        // 2. Configure AvatarStorageService to use the S3-compatible endpoint with path style access
-        avatarStorageService.configureS3(
-                "http://127.0.0.1:" + s3MockPort,
-                "nexarats-academy-avatars",
-                "us-east-1",
-                "minio_admin",
-                "minio_secret_dev",
-                true
-        );
+            avatarStorageService.configureS3(
+                    "http://127.0.0.1:" + s3MockPort,
+                    "nexarats-academy-avatars",
+                    "us-east-1",
+                    "minio_admin",
+                    "minio_secret_dev",
+                    true
+            );
+        }
 
-        // 3. Start mock ClamAV daemon and configure malware scanning service
+        // 2. Start mock ClamAV daemon and configure malware scanning service
         mockClamAvServer = new ServerSocket(0);
         int clamAvPort = mockClamAvServer.getLocalPort();
         malwareScanningService.setClamavHost("127.0.0.1");
@@ -224,6 +263,7 @@ public class MinioAvatarUploadIntegrationTests {
                 byte[] data = s3Storage.get(path);
                 if (data != null) {
                     exchange.getResponseHeaders().set("Content-Type", "image/png");
+                    exchange.getResponseHeaders().set("Content-Length", String.valueOf(data.length));
                     exchange.sendResponseHeaders(200, data.length);
                     try (OutputStream out = exchange.getResponseBody()) {
                         out.write(data);
@@ -232,13 +272,60 @@ public class MinioAvatarUploadIntegrationTests {
                     exchange.sendResponseHeaders(404, -1);
                 }
             } else if ("HEAD".equalsIgnoreCase(method)) {
-                exchange.sendResponseHeaders(200, -1);
+                byte[] data = s3Storage.get(path);
+                if (data != null) {
+                    exchange.getResponseHeaders().set("Content-Length", String.valueOf(data.length));
+                    exchange.getResponseHeaders().set("ETag", "\"d41d8cd98f00b204e9800998ecf8427e\"");
+                    exchange.sendResponseHeaders(200, -1);
+                } else {
+                    exchange.sendResponseHeaders(404, -1);
+                }
             } else if ("DELETE".equalsIgnoreCase(method)) {
                 s3Storage.remove(path);
                 exchange.sendResponseHeaders(204, -1);
             } else {
                 exchange.sendResponseHeaders(200, -1);
             }
+        }
+    }
+
+    private boolean isObjectInS3(String key) {
+        if (usingLiveMinio) {
+            try {
+                avatarStorageService.getS3Client().headObject(
+                        HeadObjectRequest.builder().bucket("nexarats-academy-avatars").key(key).build()
+                );
+                return true;
+            } catch (Exception e) {
+                return false;
+            }
+        } else {
+            return s3Storage.containsKey("/nexarats-academy-avatars/" + key);
+        }
+    }
+
+    private byte[] getObjectFromS3(String key) {
+        if (usingLiveMinio) {
+            try {
+                return avatarStorageService.getS3Client().getObjectAsBytes(
+                        GetObjectRequest.builder().bucket("nexarats-academy-avatars").key(key).build()
+                ).asByteArray();
+            } catch (Exception e) {
+                return null;
+            }
+        } else {
+            return s3Storage.get("/nexarats-academy-avatars/" + key);
+        }
+    }
+
+    private void putObjectToS3(String key, byte[] data) {
+        if (usingLiveMinio) {
+            avatarStorageService.getS3Client().putObject(
+                    PutObjectRequest.builder().bucket("nexarats-academy-avatars").key(key).build(),
+                    RequestBody.fromBytes(data)
+            );
+        } else {
+            s3Storage.put("/nexarats-academy-avatars/" + key, data);
         }
     }
 
@@ -269,12 +356,12 @@ public class MinioAvatarUploadIntegrationTests {
     }
 
     @Test
-    @DisplayName("S3/MinIO Avatar Workflow: Pre-sign -> SigV4 Upload -> Confirm Quarantine & Scan -> Approve -> Retrieve")
+    @DisplayName("S3/MinIO Avatar Workflow: Pre-sign Quarantine -> SigV4 Upload -> Scan & Promote to Approved Key -> Retrieve")
     void testCompleteS3AvatarLifecycle() throws Exception {
         String email = "minio_learner_" + UUID.randomUUID() + "@example.com";
         UserSession session = registerStudent(email);
 
-        // 1. Request real AWS SigV4 pre-signed PUT URL
+        // 1. Request real AWS SigV4 pre-signed PUT URL for temporary quarantine key
         MvcResult presignResult = mockMvc.perform(post("/api/v1/onboarding/avatar/presigned-url")
                         .header("Authorization", "Bearer " + session.token())
                         .param("extension", "png")
@@ -288,11 +375,20 @@ public class MinioAvatarUploadIntegrationTests {
         String responseJson = presignResult.getResponse().getContentAsString();
         JsonNode presignJson = objectMapper.readTree(responseJson);
         String uploadUrl = presignJson.get("uploadUrl").asText();
-        String storageObjectKey = presignJson.get("storageObjectKey").asText();
+        String quarantineKey = presignJson.get("storageObjectKey").asText();
 
-        assertThat(uploadUrl).contains("127.0.0.1:" + s3MockPort);
+        if (usingLiveMinio) {
+            assertThat(uploadUrl).contains(":9000");
+        } else {
+            assertThat(uploadUrl).contains("127.0.0.1:" + s3MockPort);
+        }
         assertThat(uploadUrl).contains("X-Amz-Signature");
-        assertThat(storageObjectKey).startsWith("avatars/" + session.tenantId() + "/" + session.userId() + "/");
+        assertThat(quarantineKey).startsWith("quarantine/avatars/" + session.tenantId() + "/" + session.userId() + "/");
+
+        // Verify ticket saved in database in ISSUED state
+        AvatarUploadTicket ticket = uploadTicketRepository.findByQuarantineKey(quarantineKey).orElseThrow();
+        assertThat(ticket.isIssued()).isTrue();
+        assertThat(ticket.getUserId()).isEqualTo(session.userId());
 
         // 2. Direct HTTP PUT upload to S3/MinIO via the SigV4 Pre-signed URL
         byte[] imageBytes = createValidPngBytes(200, 200);
@@ -306,14 +402,13 @@ public class MinioAvatarUploadIntegrationTests {
         HttpResponse<String> uploadResponse = client.send(uploadRequest, HttpResponse.BodyHandlers.ofString());
         assertThat(uploadResponse.statusCode()).isEqualTo(200);
 
-        // Verify object was received on S3 mock storage
-        String s3Path = "/nexarats-academy-avatars/" + storageObjectKey;
-        assertThat(s3Storage).containsKey(s3Path);
-        assertThat(s3Storage.get(s3Path)).isEqualTo(imageBytes);
+        // Verify object was received in quarantine path on S3 storage
+        assertThat(isObjectInS3(quarantineKey)).isTrue();
+        assertThat(getObjectFromS3(quarantineKey)).isEqualTo(imageBytes);
 
-        // 3. Confirm upload: triggers fetch from S3, quarantine validation, malware scanning, approval
+        // 3. Confirm upload: triggers HEAD check, fetch from S3, ClamAV scan, promotion to approved key & quarantine purge
         ConfirmAvatarUploadRequest confirmReq = new ConfirmAvatarUploadRequest(
-                storageObjectKey, "avatar_profile.png"
+                quarantineKey, "avatar_profile.png"
         );
 
         MvcResult confirmResult = mockMvc.perform(post("/api/v1/onboarding/avatar/confirm-upload")
@@ -330,17 +425,30 @@ public class MinioAvatarUploadIntegrationTests {
                 confirmResult.getResponse().getContentAsString(), AvatarUploadResponse.class
         );
 
-        // 4. Verify asset state in database
+        String approvedKey = uploadResultDto.storageObjectKey();
+        assertThat(approvedKey).startsWith("avatars/" + session.tenantId() + "/" + session.userId() + "/");
+        assertThat(approvedKey).isNotEqualTo(quarantineKey);
+
+        // Verify quarantined object was deleted from S3 and promoted to approved key
+        assertThat(isObjectInS3(approvedKey)).isTrue();
+        assertThat(isObjectInS3(quarantineKey)).isFalse();
+
+        // 4. Verify ticket transitioned to CONFIRMED
+        ticket = uploadTicketRepository.findByQuarantineKey(quarantineKey).orElseThrow();
+        assertThat(ticket.getStatus()).isEqualTo("CONFIRMED");
+        assertThat(ticket.getApprovedKey()).isEqualTo(approvedKey);
+
+        // 5. Verify asset state in database
         AvatarAsset asset = avatarAssetRepository.findById(uploadResultDto.avatarAssetId()).orElseThrow();
         assertThat(asset.getScanStatus()).isEqualTo(ScanStatus.CLEAN);
         assertThat(asset.isActive()).isTrue();
-        assertThat(asset.getStorageObjectKey()).isEqualTo(storageObjectKey);
+        assertThat(asset.getStorageObjectKey()).isEqualTo(approvedKey);
 
         // Verify linked to student profile
         StudentProfile profile = studentProfileRepository.findByTenantIdAndUserId(session.tenantId(), session.userId()).orElseThrow();
         assertThat(profile.getAvatarAssetId()).isEqualTo(asset.getId());
 
-        // 5. Retrieve avatar: Public streaming endpoint retrieves bytes from S3 and serves with cache headers
+        // 6. Retrieve avatar: Public streaming endpoint retrieves bytes from S3 and serves with cache headers
         MvcResult getResult = mockMvc.perform(get("/api/v1/onboarding/avatar/" + asset.getId()))
                 .andExpect(status().isOk())
                 .andReturn();
@@ -348,6 +456,173 @@ public class MinioAvatarUploadIntegrationTests {
         byte[] retrievedBytes = getResult.getResponse().getContentAsByteArray();
         assertThat(retrievedBytes).isEqualTo(imageBytes);
         assertThat(getResult.getResponse().getHeader("Cache-Control")).contains("public, max-age=86400");
+    }
+
+    @Test
+    @DisplayName("S3/MinIO Overwrite Defense: Reusing pre-signed PUT URL cannot overwrite approved avatar")
+    void testPostScanAvatarOverwritePreventionThroughPreSignedUrlReuse() throws Exception {
+        String email = "tamper_learner_" + UUID.randomUUID() + "@example.com";
+        UserSession session = registerStudent(email);
+
+        // 1. Get presigned URL for quarantine key
+        MvcResult presignResult = mockMvc.perform(post("/api/v1/onboarding/avatar/presigned-url")
+                        .header("Authorization", "Bearer " + session.token())
+                        .param("extension", "png")
+                        .param("contentType", "image/png"))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        JsonNode presignJson = objectMapper.readTree(presignResult.getResponse().getContentAsString());
+        String uploadUrl = presignJson.get("uploadUrl").asText();
+        String quarantineKey = presignJson.get("storageObjectKey").asText();
+
+        // 2. Upload original valid PNG
+        byte[] originalBytes = createValidPngBytes(200, 200);
+        HttpClient client = HttpClient.newHttpClient();
+        HttpRequest uploadRequest = HttpRequest.newBuilder()
+                .uri(URI.create(uploadUrl))
+                .header("Content-Type", "image/png")
+                .PUT(HttpRequest.BodyPublishers.ofByteArray(originalBytes))
+                .build();
+        assertThat(client.send(uploadRequest, HttpResponse.BodyHandlers.ofString()).statusCode()).isEqualTo(200);
+
+        // 3. Confirm upload -> promotes to approved key
+        ConfirmAvatarUploadRequest confirmReq = new ConfirmAvatarUploadRequest(quarantineKey, "avatar.png");
+        MvcResult confirmResult = mockMvc.perform(post("/api/v1/onboarding/avatar/confirm-upload")
+                        .header("Authorization", "Bearer " + session.token())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(confirmReq)))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        AvatarUploadResponse uploadResultDto = objectMapper.readValue(
+                confirmResult.getResponse().getContentAsString(), AvatarUploadResponse.class
+        );
+        String approvedKey = uploadResultDto.storageObjectKey();
+
+        // 4. Attacker attempts to reuse original pre-signed PUT URL to upload altered bytes to quarantine key
+        byte[] alteredBytes = createValidPngBytes(300, 300);
+        HttpRequest overwriteRequest = HttpRequest.newBuilder()
+                .uri(URI.create(uploadUrl))
+                .header("Content-Type", "image/png")
+                .PUT(HttpRequest.BodyPublishers.ofByteArray(alteredBytes))
+                .build();
+        client.send(overwriteRequest, HttpResponse.BodyHandlers.ofString());
+
+        // 5. Verify the approved avatar at approvedKey in S3 and through the API is UNALTERED!
+        assertThat(getObjectFromS3(approvedKey)).isEqualTo(originalBytes);
+
+        MvcResult getResult = mockMvc.perform(get("/api/v1/onboarding/avatar/" + uploadResultDto.avatarAssetId()))
+                .andExpect(status().isOk())
+                .andReturn();
+        assertThat(getResult.getResponse().getContentAsByteArray()).isEqualTo(originalBytes);
+
+        // 6. Attacker attempts to re-confirm the reused URL/ticket -> rejected with 400 Bad Request
+        mockMvc.perform(post("/api/v1/onboarding/avatar/confirm-upload")
+                        .header("Authorization", "Bearer " + session.token())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(confirmReq)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("S3/MinIO Security: Presigned URL generator rejects executable scripts, vector formats and unsupported content types")
+    void testPresignedUrlRejectsUnsupportedExtensionsAndContentTypes() throws Exception {
+        String email = "unsupported_ext_" + UUID.randomUUID() + "@example.com";
+        UserSession session = registerStudent(email);
+
+        // Disallowed executable shell script
+        mockMvc.perform(post("/api/v1/onboarding/avatar/presigned-url")
+                        .header("Authorization", "Bearer " + session.token())
+                        .param("extension", "sh")
+                        .param("contentType", "application/x-sh"))
+                .andExpect(status().isBadRequest());
+
+        // Disallowed SVG vector extension (XSS risk)
+        mockMvc.perform(post("/api/v1/onboarding/avatar/presigned-url")
+                        .header("Authorization", "Bearer " + session.token())
+                        .param("extension", "svg")
+                        .param("contentType", "image/svg+xml"))
+                .andExpect(status().isBadRequest());
+
+        // Disallowed HTML content type
+        mockMvc.perform(post("/api/v1/onboarding/avatar/presigned-url")
+                        .header("Authorization", "Bearer " + session.token())
+                        .param("extension", "jpg")
+                        .param("contentType", "text/html"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("S3/MinIO Security: Confirm upload rejects expired tickets and purges quarantined objects")
+    void testConfirmUploadRejectsExpiredTicket() throws Exception {
+        String email = "expired_ticket_" + UUID.randomUUID() + "@example.com";
+        UserSession session = registerStudent(email);
+
+        MvcResult presignResult = mockMvc.perform(post("/api/v1/onboarding/avatar/presigned-url")
+                        .header("Authorization", "Bearer " + session.token())
+                        .param("extension", "png")
+                        .param("contentType", "image/png"))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        JsonNode presignJson = objectMapper.readTree(presignResult.getResponse().getContentAsString());
+        String uploadUrl = presignJson.get("uploadUrl").asText();
+        String quarantineKey = presignJson.get("storageObjectKey").asText();
+
+        byte[] imageBytes = createValidPngBytes(200, 200);
+        HttpClient client = HttpClient.newHttpClient();
+        client.send(HttpRequest.newBuilder()
+                .uri(URI.create(uploadUrl))
+                .header("Content-Type", "image/png")
+                .PUT(HttpRequest.BodyPublishers.ofByteArray(imageBytes))
+                .build(), HttpResponse.BodyHandlers.ofString());
+
+        // Force ticket expiration in database
+        AvatarUploadTicket ticket = uploadTicketRepository.findByQuarantineKey(quarantineKey).orElseThrow();
+        ticket.setExpiresAt(Instant.now().minusSeconds(60));
+        uploadTicketRepository.save(ticket);
+
+        ConfirmAvatarUploadRequest confirmReq = new ConfirmAvatarUploadRequest(quarantineKey, "avatar.png");
+        mockMvc.perform(post("/api/v1/onboarding/avatar/confirm-upload")
+                        .header("Authorization", "Bearer " + session.token())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(confirmReq)))
+                .andExpect(status().isBadRequest());
+
+        // Quarantined object must be purged from S3 storage
+        assertThat(isObjectInS3(quarantineKey)).isFalse();
+    }
+
+    @Test
+    @DisplayName("S3/MinIO Security: Confirm upload rejects oversized avatars (>5MB) via S3 HEAD check and purges object")
+    void testConfirmUploadRejectsOversizedAvatar() throws Exception {
+        String email = "oversized_" + UUID.randomUUID() + "@example.com";
+        UserSession session = registerStudent(email);
+
+        MvcResult presignResult = mockMvc.perform(post("/api/v1/onboarding/avatar/presigned-url")
+                        .header("Authorization", "Bearer " + session.token())
+                        .param("extension", "png")
+                        .param("contentType", "image/png"))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        JsonNode presignJson = objectMapper.readTree(presignResult.getResponse().getContentAsString());
+        String quarantineKey = presignJson.get("storageObjectKey").asText();
+
+        // Inject 5.5 MB payload directly to S3 quarantine key
+        byte[] oversizedBytes = new byte[5 * 1024 * 1024 + 1024];
+        putObjectToS3(quarantineKey, oversizedBytes);
+
+        ConfirmAvatarUploadRequest confirmReq = new ConfirmAvatarUploadRequest(quarantineKey, "big.png");
+        mockMvc.perform(post("/api/v1/onboarding/avatar/confirm-upload")
+                        .header("Authorization", "Bearer " + session.token())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(confirmReq)))
+                .andExpect(status().isBadRequest());
+
+        // Object must be purged from S3
+        assertThat(isObjectInS3(quarantineKey)).isFalse();
     }
 
     @Test
@@ -359,9 +634,19 @@ public class MinioAvatarUploadIntegrationTests {
         String emailB = "user_b_" + UUID.randomUUID() + "@example.com";
         UserSession sessionB = registerStudent(emailB);
 
-        // User B attempts to claim an object key belonging to User A
-        String forgedKey = String.format("avatars/%s/%s/target.png", sessionA.tenantId(), sessionA.userId());
-        ConfirmAvatarUploadRequest request = new ConfirmAvatarUploadRequest(forgedKey, "target.png");
+        // User A generates a ticket
+        MvcResult presignResult = mockMvc.perform(post("/api/v1/onboarding/avatar/presigned-url")
+                        .header("Authorization", "Bearer " + sessionA.token())
+                        .param("extension", "png")
+                        .param("contentType", "image/png"))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        JsonNode presignJson = objectMapper.readTree(presignResult.getResponse().getContentAsString());
+        String quarantineKeyA = presignJson.get("storageObjectKey").asText();
+
+        // User B attempts to claim the quarantine key belonging to User A
+        ConfirmAvatarUploadRequest request = new ConfirmAvatarUploadRequest(quarantineKeyA, "target.png");
 
         mockMvc.perform(post("/api/v1/onboarding/avatar/confirm-upload")
                         .header("Authorization", "Bearer " + sessionB.token())
@@ -386,7 +671,7 @@ public class MinioAvatarUploadIntegrationTests {
 
         JsonNode presignJson = objectMapper.readTree(presignResult.getResponse().getContentAsString());
         String uploadUrl = presignJson.get("uploadUrl").asText();
-        String storageObjectKey = presignJson.get("storageObjectKey").asText();
+        String quarantineKey = presignJson.get("storageObjectKey").asText();
 
         // 2. Upload valid PNG image containing embedded/appended EICAR signature bytes
         byte[] validPng = createValidPngBytes(200, 200);
@@ -405,7 +690,7 @@ public class MinioAvatarUploadIntegrationTests {
         client.send(uploadRequest, HttpResponse.BodyHandlers.ofString());
 
         // 3. Confirm upload -> triggers validation & ClamAV scan -> fails closed and purges from S3
-        ConfirmAvatarUploadRequest confirmReq = new ConfirmAvatarUploadRequest(storageObjectKey, "bad.png");
+        ConfirmAvatarUploadRequest confirmReq = new ConfirmAvatarUploadRequest(quarantineKey, "bad.png");
 
         mockMvc.perform(post("/api/v1/onboarding/avatar/confirm-upload")
                         .header("Authorization", "Bearer " + session.token())
@@ -413,8 +698,7 @@ public class MinioAvatarUploadIntegrationTests {
                         .content(objectMapper.writeValueAsString(confirmReq)))
                 .andExpect(status().isBadRequest());
 
-        // Object must be purged from S3 storage
-        String s3Path = "/nexarats-academy-avatars/" + storageObjectKey;
-        assertThat(s3Storage.containsKey(s3Path)).isFalse();
+        // Quarantined object must be purged from S3 storage
+        assertThat(isObjectInS3(quarantineKey)).isFalse();
     }
 }

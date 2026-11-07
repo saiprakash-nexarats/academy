@@ -15,6 +15,7 @@ import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.core.ResponseBytes;
+import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -25,8 +26,7 @@ import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedPutObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
 
-import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URLDecoder;
@@ -37,13 +37,13 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Base64;
 import java.util.UUID;
 
 @Service
 public class AvatarStorageService {
 
     private static final Logger log = LoggerFactory.getLogger(AvatarStorageService.class);
+    public static final long MAX_AVATAR_SIZE_BYTES = 5 * 1024 * 1024L; // 5 MB
 
     @Value("${nexarats.storage.avatar-upload-dir:target/avatars}")
     private String avatarUploadDir;
@@ -68,9 +68,6 @@ public class AvatarStorageService {
 
     @Value("${nexarats.storage.s3.path-style-access-enabled:true}")
     private boolean pathStyleAccessEnabled;
-
-    @Value("${nexarats.storage.presigned-signing-secret:dev-avatar-storage-signing-secret-key-32b!}")
-    private String signingSecret;
 
     private S3Presigner s3Presigner;
     private S3Client s3Client;
@@ -162,25 +159,53 @@ public class AvatarStorageService {
             log.info("Initialized AWS SDK v2 S3Presigner and S3Client with endpoint: {}, bucket: {}, pathStyle: {}",
                     s3Endpoint, s3Bucket, pathStyleAccessEnabled);
         } catch (Exception e) {
-            log.warn("Failed to initialize S3 clients: {}", e.getMessage());
+            log.error("Failed to initialize S3 clients: {}", e.getMessage(), e);
+            this.s3Presigner = null;
+            this.s3Client = null;
+        }
+    }
+
+    public void validateExtensionAndContentType(String extension, String contentType) {
+        if (extension == null || extension.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "File extension is required.");
+        }
+        String ext = extension.toLowerCase().replace(".", "").trim();
+        if (!ext.equals("jpg") && !ext.equals("jpeg") && !ext.equals("png") && !ext.equals("webp")) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Unsupported image extension '." + ext + "'. Allowed formats: jpg, jpeg, png, webp.");
+        }
+        if (contentType == null || contentType.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Content-Type is required.");
+        }
+        String ct = contentType.toLowerCase().trim();
+        if (!ct.equals("image/jpeg") && !ct.equals("image/png") && !ct.equals("image/webp")) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Unsupported Content-Type '" + ct + "'. Allowed types: image/jpeg, image/png, image/webp.");
         }
     }
 
     /**
-     * Generates a short-lived (15 min), ownership-bound pre-signed PUT upload specification.
-     * When S3/MinIO is configured, generates a real AWS SigV4 pre-signed PUT URL.
-     * Binds the target storageObjectKey to the authenticated tenantId and userId.
+     * Generates a short-lived (15 min), ownership-bound pre-signed PUT upload specification
+     * for a temporary quarantine object key ONLY.
+     * Clients CANNOT overwrite approved avatars because pre-signed URLs point exclusively to quarantine keys.
      */
     public PreSignedUploadSpec generatePreSignedUploadSpec(UUID tenantId, UUID userId, String fileExtension, String contentType) {
+        validateExtensionAndContentType(fileExtension, contentType);
+        String ext = fileExtension.toLowerCase().replace(".", "").trim();
         String tenantFolder = tenantId != null ? tenantId.toString() : "global";
-        String objectKey = String.format("avatars/%s/%s/%s.%s", tenantFolder, userId, UUID.randomUUID(), fileExtension);
+        String quarantineKey = String.format("quarantine/avatars/%s/%s/%s.%s", tenantFolder, userId, UUID.randomUUID(), ext);
         Duration duration = Duration.ofMinutes(15);
         Instant expiresAt = Instant.now().plus(duration);
 
-        if (s3Presigner != null) {
+        if ("S3_COMPATIBLE".equalsIgnoreCase(storageProvider) || (s3Endpoint != null && !s3Endpoint.isBlank())) {
+            if (s3Presigner == null) {
+                log.error("S3 presigner is null while in S3_COMPATIBLE mode. Refusing nonfunctional fallback.");
+                throw new IllegalStateException("AWS S3Presigner is unavailable in S3_COMPATIBLE mode.");
+            }
+            ensureBucketExists();
             PutObjectRequest putRequest = PutObjectRequest.builder()
                     .bucket(s3Bucket)
-                    .key(objectKey)
+                    .key(quarantineKey)
                     .contentType(contentType)
                     .build();
 
@@ -196,31 +221,180 @@ public class AvatarStorageService {
                 signature = "sig4_" + UUID.randomUUID().toString().replace("-", "");
             }
 
-            log.info("Generated AWS SigV4 pre-signed upload URL for user {} tenant {} key {}", userId, tenantId, objectKey);
-            return new PreSignedUploadSpec(uploadUrl, objectKey, "PUT", expiresAt, signature);
+            log.info("Generated AWS SigV4 pre-signed upload URL for user {} tenant {} quarantine key {}",
+                    userId, tenantId, quarantineKey);
+            return new PreSignedUploadSpec(uploadUrl, quarantineKey, "PUT", expiresAt, signature);
         } else {
-            String stringToSign = String.format("PUT\n%s\n%s\n%s\n%d",
-                    contentType, objectKey, tenantFolder, expiresAt.getEpochSecond());
-            String signature = computeHmacSha256(stringToSign, signingSecret);
-
-            String uploadUrl;
-            if (s3Endpoint != null && !s3Endpoint.isBlank()) {
-                uploadUrl = String.format("%s/%s/%s?X-Amz-Expires=900&X-Amz-Signature=%s",
-                        s3Endpoint.replaceAll("/$", ""), s3Bucket, objectKey, signature);
-            } else {
-                uploadUrl = String.format("/api/v1/onboarding/avatar/upload-spec?key=%s&sig=%s",
-                        objectKey, signature);
-            }
-
-            log.info("Generated pre-signed upload spec (fallback) for user {} tenant {} key {}",
-                    userId, tenantId, objectKey);
-            return new PreSignedUploadSpec(uploadUrl, objectKey, "PUT", expiresAt, signature);
+            // Explicit LOCAL_STORAGE mode
+            String uploadUrl = String.format("/api/v1/onboarding/avatar/quarantine-upload?key=%s", quarantineKey);
+            String signature = "local_" + UUID.randomUUID().toString().replace("-", "");
+            log.info("Generated local storage upload spec for user {} tenant {} quarantine key {}",
+                    userId, tenantId, quarantineKey);
+            return new PreSignedUploadSpec(uploadUrl, quarantineKey, "PUT", expiresAt, signature);
         }
     }
 
-    public String storeAvatar(UUID tenantId, UUID userId, String extension, byte[] bytes) {
+    /**
+     * Inspects object existence and size using S3 HEAD object before downloading bytes.
+     * Rejects empty or oversized objects and purges invalid uploads.
+     */
+    public long checkObjectExistsAndSize(String storageObjectKey, long maxBytes) {
+        validateStorageObjectKey(storageObjectKey);
+
+        if (s3Client != null && "S3_COMPATIBLE".equalsIgnoreCase(storageProvider)) {
+            try {
+                HeadObjectResponse head = s3Client.headObject(HeadObjectRequest.builder()
+                        .bucket(s3Bucket)
+                        .key(storageObjectKey)
+                        .build());
+                long size = head.contentLength() != null ? head.contentLength() : 0L;
+                if (size <= 0) {
+                    deleteAvatar(storageObjectKey);
+                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Uploaded object is empty.");
+                }
+                if (size > maxBytes) {
+                    deleteAvatar(storageObjectKey);
+                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                            String.format("Uploaded object exceeds maximum allowable size of %d bytes (received %d bytes)", maxBytes, size));
+                }
+                return size;
+            } catch (NoSuchKeyException e) {
+                throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Quarantined avatar object not found in storage.");
+            } catch (S3Exception e) {
+                if (e.statusCode() == 404) {
+                    throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Quarantined avatar object not found in storage.");
+                }
+                log.error("Failed to inspect object metadata in S3: {}", storageObjectKey, e);
+                throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to inspect avatar object in storage.");
+            }
+        }
+
+        Path rootPath = Paths.get(avatarUploadDir).toAbsolutePath().normalize();
+        Path targetPath = rootPath.resolve(storageObjectKey).normalize();
+
+        if (!targetPath.startsWith(rootPath) || !Files.exists(targetPath)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Quarantined avatar file not found on disk.");
+        }
+
+        try {
+            long size = Files.size(targetPath);
+            if (size <= 0) {
+                deleteAvatar(storageObjectKey);
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Uploaded object is empty.");
+            }
+            if (size > maxBytes) {
+                deleteAvatar(storageObjectKey);
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        String.format("Uploaded object exceeds maximum allowable size of %d bytes (received %d bytes)", maxBytes, size));
+            }
+            return size;
+        } catch (IOException e) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to inspect avatar file on disk.");
+        }
+    }
+
+    public byte[] getAvatarBytes(String storageObjectKey) {
+        return getAvatarBytes(storageObjectKey, MAX_AVATAR_SIZE_BYTES);
+    }
+
+    /**
+     * Bounded download of object bytes with hard size limit enforcement.
+     */
+    public byte[] getAvatarBytes(String storageObjectKey, long maxBytes) {
+        validateStorageObjectKey(storageObjectKey);
+        checkObjectExistsAndSize(storageObjectKey, maxBytes);
+
+        if (s3Client != null && "S3_COMPATIBLE".equalsIgnoreCase(storageProvider)) {
+            try (ResponseInputStream<GetObjectResponse> in = s3Client.getObject(
+                    GetObjectRequest.builder().bucket(s3Bucket).key(storageObjectKey).build())) {
+                ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                byte[] buffer = new byte[8192];
+                long total = 0;
+                int read;
+                while ((read = in.read(buffer)) != -1) {
+                    total += read;
+                    if (total > maxBytes) {
+                        deleteAvatar(storageObjectKey);
+                        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Uploaded avatar exceeded size limit during transfer.");
+                    }
+                    baos.write(buffer, 0, read);
+                }
+                return baos.toByteArray();
+            } catch (NoSuchKeyException e) {
+                throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Avatar object not found in storage.");
+            } catch (ResponseStatusException e) {
+                throw e;
+            } catch (Exception e) {
+                log.error("Failed to read avatar object from S3: {}", storageObjectKey, e);
+                throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to read avatar from storage.");
+            }
+        }
+
+        Path rootPath = Paths.get(avatarUploadDir).toAbsolutePath().normalize();
+        Path targetPath = rootPath.resolve(storageObjectKey).normalize();
+
+        if (!targetPath.startsWith(rootPath) || !Files.exists(targetPath)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Avatar file bytes not found on disk.");
+        }
+
+        try {
+            return Files.readAllBytes(targetPath);
+        } catch (IOException e) {
+            log.error("Failed to read avatar file from disk: {}", targetPath, e);
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to read avatar file.");
+        }
+    }
+
+    /**
+     * Atomically promotes a quarantined avatar to an unguessable approved key and deletes the quarantined file.
+     */
+    public String promoteQuarantinedAvatar(String quarantineKey, UUID tenantId, UUID userId, String fileExtension, byte[] verifiedBytes) {
+        validateStorageObjectKey(quarantineKey);
+        String ext = fileExtension.toLowerCase().replace(".", "").trim();
         String tenantFolder = tenantId != null ? tenantId.toString() : "global";
-        String objectKey = String.format("avatars/%s/%s/%s.%s", tenantFolder, userId, UUID.randomUUID(), extension);
+        String approvedKey = String.format("avatars/%s/%s/%s.%s", tenantFolder, userId, UUID.randomUUID(), ext);
+        validateStorageObjectKey(approvedKey);
+
+        if (s3Client != null && "S3_COMPATIBLE".equalsIgnoreCase(storageProvider)) {
+            try {
+                ensureBucketExists();
+                PutObjectRequest putReq = PutObjectRequest.builder()
+                        .bucket(s3Bucket)
+                        .key(approvedKey)
+                        .contentType(detectContentType(ext))
+                        .build();
+                s3Client.putObject(putReq, RequestBody.fromBytes(verifiedBytes));
+                log.info("Promoted verified avatar from quarantine {} to approved key {} in S3 bucket {}",
+                        quarantineKey, approvedKey, s3Bucket);
+            } catch (Exception e) {
+                log.error("Failed to promote avatar to approved key in S3: {}", e.getMessage(), e);
+                throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to persist approved avatar to cloud storage.");
+            }
+        } else {
+            Path rootPath = Paths.get(avatarUploadDir).toAbsolutePath().normalize();
+            Path targetPath = rootPath.resolve(approvedKey).normalize();
+            if (!targetPath.startsWith(rootPath)) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid storage path detected.");
+            }
+            try {
+                Files.createDirectories(targetPath.getParent());
+                Files.write(targetPath, verifiedBytes, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+                log.info("Promoted verified avatar from quarantine {} to approved file {}", quarantineKey, targetPath);
+            } catch (IOException e) {
+                log.error("Failed to write approved avatar file to disk: {}", targetPath, e);
+                throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to persist approved avatar file.");
+            }
+        }
+
+        // Clean up temporary quarantined object from storage
+        deleteAvatar(quarantineKey);
+        return approvedKey;
+    }
+
+    public String storeAvatar(UUID tenantId, UUID userId, String extension, byte[] bytes) {
+        String ext = extension.toLowerCase().replace(".", "").trim();
+        String tenantFolder = tenantId != null ? tenantId.toString() : "global";
+        String objectKey = String.format("avatars/%s/%s/%s.%s", tenantFolder, userId, UUID.randomUUID(), ext);
 
         validateStorageObjectKey(objectKey);
 
@@ -230,7 +404,7 @@ public class AvatarStorageService {
                 PutObjectRequest putReq = PutObjectRequest.builder()
                         .bucket(s3Bucket)
                         .key(objectKey)
-                        .contentType(detectContentType(extension))
+                        .contentType(detectContentType(ext))
                         .build();
                 s3Client.putObject(putReq, RequestBody.fromBytes(bytes));
                 log.info("Stored avatar asset for user {} in S3 bucket {} at key {}", userId, s3Bucket, objectKey);
@@ -244,7 +418,6 @@ public class AvatarStorageService {
         Path rootPath = Paths.get(avatarUploadDir).toAbsolutePath().normalize();
         Path targetPath = rootPath.resolve(objectKey).normalize();
 
-        // Security check: directory traversal defense
         if (!targetPath.startsWith(rootPath)) {
             log.warn("Directory traversal detected in avatar storage path: {}", targetPath);
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid storage path detected.");
@@ -292,36 +465,6 @@ public class AvatarStorageService {
         }
 
         return new FileSystemResource(targetPath.toFile());
-    }
-
-    public byte[] getAvatarBytes(String storageObjectKey) {
-        validateStorageObjectKey(storageObjectKey);
-
-        if (s3Client != null && "S3_COMPATIBLE".equalsIgnoreCase(storageProvider)) {
-            try {
-                return s3Client.getObjectAsBytes(
-                        GetObjectRequest.builder().bucket(s3Bucket).key(storageObjectKey).build()).asByteArray();
-            } catch (NoSuchKeyException e) {
-                throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Avatar object not found in storage.");
-            } catch (Exception e) {
-                log.error("Failed to read avatar object from S3: {}", storageObjectKey, e);
-                throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to read avatar from storage.");
-            }
-        }
-
-        Path rootPath = Paths.get(avatarUploadDir).toAbsolutePath().normalize();
-        Path targetPath = rootPath.resolve(storageObjectKey).normalize();
-
-        if (!targetPath.startsWith(rootPath) || !Files.exists(targetPath)) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Avatar file bytes not found on disk.");
-        }
-
-        try {
-            return Files.readAllBytes(targetPath);
-        } catch (IOException e) {
-            log.error("Failed to read avatar file from disk: {}", targetPath, e);
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to read avatar file.");
-        }
     }
 
     public void deleteAvatar(String storageObjectKey) {
@@ -376,7 +519,7 @@ public class AvatarStorageService {
 
     private String detectContentType(String extension) {
         if (extension == null) return "application/octet-stream";
-        String ext = extension.toLowerCase().replace(".", "");
+        String ext = extension.toLowerCase().replace(".", "").trim();
         return switch (ext) {
             case "jpg", "jpeg" -> "image/jpeg";
             case "png" -> "image/png";
@@ -397,22 +540,15 @@ public class AvatarStorageService {
         return null;
     }
 
-    private String computeHmacSha256(String data, String key) {
-        try {
-            Mac mac = Mac.getInstance("HmacSHA256");
-            mac.init(new SecretKeySpec(key.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
-            byte[] rawHmac = mac.doFinal(data.getBytes(StandardCharsets.UTF_8));
-            return Base64.getUrlEncoder().withoutPadding().encodeToString(rawHmac);
-        } catch (Exception e) {
-            throw new IllegalStateException("Failed to calculate HMAC-SHA256 signature", e);
-        }
-    }
-
     public S3Presigner getS3Presigner() {
         return s3Presigner;
     }
 
     public S3Client getS3Client() {
         return s3Client;
+    }
+
+    public String getStorageProvider() {
+        return storageProvider;
     }
 }

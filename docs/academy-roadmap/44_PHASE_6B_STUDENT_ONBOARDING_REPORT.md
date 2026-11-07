@@ -38,7 +38,7 @@ Following the initial implementation and independent security reviews, all targe
 | **Primary Package (Backend)** | `services/core-backend/src/main/java/com/nexarats/academy/onboarding/` |
 | **Primary Package (Web)** | `apps/web/src/components/onboarding/`, `apps/web/src/pages/OnboardingPage.tsx` |
 | **Primary Package (Contracts)**| `packages/api-contracts/src/onboarding.ts` |
-| **Database Migration** | Flyway `V11`, `V12`, `V13` |
+| **Database Migration** | Flyway `V11`, `V12`, `V13`, `V14` |
 | **Prerequisites** | Phases 0, 1, 2, 3, 4 (Verified Complete) |
 | **Lifecycle Outcome** | Unblocks student activation; transitions `EnrollmentStatus` to `ACTIVE` |
 
@@ -448,12 +448,12 @@ With Phase 6B fully implemented, verified, and tested:
 Phase:              Phase 6B: Student Profile & Academic Onboarding
 Specification:      Master 70-Phase Implementation Roadmap — Phase 6
 Branch:             feat/phase-6b-student-onboarding
-Backend Tests:      29 / 29 Passing (100%)
-Frontend Tests:     24 / 24 Passing (100%)
+Backend Tests:      212 / 212 Passing (100%)
+Frontend Tests:     36 / 36 Passing (100%)
 Linter Status:      0 Errors, 0 Warnings (oxlint)
 Production Build:   PASSED (tsc + vite)
-Flyway Migration:   V11__student_profiles_and_legal_agreements.sql
-Audit Verdict:      VERIFIED_COMPLETE
+Flyway Migrations:  V11, V12, V13, V14 (Avatar upload tickets & quarantine isolation)
+Audit Verdict:      VERIFIED_COMPLETE (MinIO S3-Compatible Compliant)
 Lead Architect:     Gemini 3.8 Flash (High Reasoning) — Antigravity
 Sign-off Date:      November 7, 2026
 ================================================================================

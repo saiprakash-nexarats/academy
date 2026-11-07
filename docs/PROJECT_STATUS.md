@@ -16,11 +16,11 @@
 
 | Subsystem | Health Status | Key Metrics | Active Work Remaining |
 |:---|:---|:---|:---|
-| **Frontend (`apps/web`)** | 🟢 Healthy | 0 Lint Errors, 0 Build Errors, 31 Vitest & Node Tests Passing | Bookmarking drawer, batch countdown, counseling booking |
-| **Core Backend (`services/core-backend`)** | 🟢 Healthy | Spring Modulith Architecture Verified, 207 Backend Tests Passing in CI (0 Failures, 0 Errors) | CRM review portal, installment schedules, streak calculator |
-| **Database Migrations** | 🟢 Verified | Flyway V1–V13 applied cleanly | Subsequent migrations |
-| **Security & RBAC** | 🟢 Hardened | Spring Security, Strict Tenant Scoping, Session Token Binding, ClamAV Fail-Closed, Content Hash Proof, Proxy Defense | Fine-grained permission evaluations |
-| **Video Playback & Media** | 🟢 Hardened | `MediaStorageService`, RFC 7233, Server-Side Watch Delta Limits, WebP Bitstream Parser, Onboarding Access Gate | Video bookmarking, transcript drawer, S3 transcode |
+| **Frontend (`apps/web`)** | 🟢 Healthy | 0 Lint Errors, 0 Build Errors, 36 Vitest & Node Tests Passing (Direct S3 Pre-signed Upload Integrated) | Bookmarking drawer, batch countdown, counseling booking |
+| **Core Backend (`services/core-backend`)** | 🟢 Healthy | Spring Modulith Architecture Verified, 212+ Backend Tests Passing in CI (0 Failures, 0 Errors) | CRM review portal, installment schedules, streak calculator |
+| **Database Migrations** | 🟢 Verified | Flyway V1–V14 applied cleanly (V14: Avatar Upload Tickets & Quarantine Isolation) | Subsequent migrations |
+| **Security & RBAC** | 🟢 Hardened | Spring Security, Strict Tenant Scoping, Session Token Binding, ClamAV Fail-Closed, Post-Scan Overwrite Prevention, Proxy Defense | Fine-grained permission evaluations |
+| **Video Playback & Media** | 🟢 Hardened | `MediaStorageService`, RFC 7233, Server-Side Watch Delta Limits, Playback Stream Onboarding Check & Profile Deletion Defense | Video bookmarking, transcript drawer, S3 transcode |
 | **Progress Engine** | 🟢 Hardened | Video watch-time $\ge 80\%$ required, Non-video manual completion, Dual-tenant isolation, Student Lifecycle Activation | Daily streak counters, learning bookmarks |
 
 ---

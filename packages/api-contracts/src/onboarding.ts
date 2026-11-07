@@ -59,6 +59,19 @@ export interface AvatarUploadResponse {
   avatarUrl: string
 }
 
+export interface PreSignedUploadSpec {
+  uploadUrl: string
+  storageObjectKey: string
+  httpMethod: string
+  expiresAt: string
+  signature: string
+}
+
+export interface ConfirmAvatarUploadRequest {
+  storageObjectKey: string
+  originalFilename?: string
+}
+
 export interface OnboardingStatusResponse {
   overallStatus: OnboardingStatus
   profileCompleted: boolean

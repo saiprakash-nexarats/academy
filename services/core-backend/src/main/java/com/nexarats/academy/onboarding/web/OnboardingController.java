@@ -4,6 +4,7 @@ import com.nexarats.academy.common.security.UserPrincipal;
 import com.nexarats.academy.onboarding.dto.*;
 import com.nexarats.academy.onboarding.model.*;
 import com.nexarats.academy.onboarding.repository.AvatarAssetRepository;
+import com.nexarats.academy.onboarding.repository.AvatarUploadTicketRepository;
 import com.nexarats.academy.onboarding.service.*;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -51,6 +52,7 @@ public class OnboardingController {
     private final AvatarMalwareScanningService malwareScanningService;
     private final AvatarStorageService storageService;
     private final AvatarAssetRepository avatarAssetRepository;
+    private final AvatarUploadTicketRepository uploadTicketRepository;
 
     public OnboardingController(
             StudentOnboardingService onboardingService,
@@ -60,6 +62,19 @@ public class OnboardingController {
             AvatarMalwareScanningService malwareScanningService,
             AvatarStorageService storageService,
             AvatarAssetRepository avatarAssetRepository) {
+        this(onboardingService, profileService, legalAgreementService, avatarValidationService,
+                malwareScanningService, storageService, avatarAssetRepository, null);
+    }
+
+    public OnboardingController(
+            StudentOnboardingService onboardingService,
+            StudentProfileService profileService,
+            LegalAgreementService legalAgreementService,
+            AvatarValidationService avatarValidationService,
+            AvatarMalwareScanningService malwareScanningService,
+            AvatarStorageService storageService,
+            AvatarAssetRepository avatarAssetRepository,
+            AvatarUploadTicketRepository uploadTicketRepository) {
         this.onboardingService = onboardingService;
         this.profileService = profileService;
         this.legalAgreementService = legalAgreementService;
@@ -67,6 +82,7 @@ public class OnboardingController {
         this.malwareScanningService = malwareScanningService;
         this.storageService = storageService;
         this.avatarAssetRepository = avatarAssetRepository;
+        this.uploadTicketRepository = uploadTicketRepository;
     }
 
     @GetMapping("/status")
@@ -108,8 +124,27 @@ public class OnboardingController {
             @AuthenticationPrincipal UserPrincipal principal
     ) {
         assertAuthenticated(principal);
+
+        // Pre-validate format and content-type before generating spec or issuing ticket
+        storageService.validateExtensionAndContentType(extension, contentType);
+
         AvatarStorageService.PreSignedUploadSpec spec = storageService.generatePreSignedUploadSpec(
                 principal.getTenantId(), principal.getUserId(), extension, contentType);
+
+        String cleanExt = extension.toLowerCase().replace(".", "").trim();
+        AvatarUploadTicket ticket = new AvatarUploadTicket(
+                principal.getTenantId(),
+                principal.getUserId(),
+                spec.storageObjectKey(),
+                "avatar." + cleanExt,
+                contentType,
+                cleanExt,
+                spec.expiresAt()
+        );
+        uploadTicketRepository.save(ticket);
+        log.info("Issued and recorded avatar upload ticket {} for user {} quarantineKey {}",
+                ticket.getId(), principal.getUserId(), spec.storageObjectKey());
+
         return ResponseEntity.ok(spec);
     }
 
@@ -185,73 +220,118 @@ public class OnboardingController {
     ) {
         assertAuthenticated(principal);
 
-        String key = request.storageObjectKey();
-        String tenantFolder = principal.getTenantId() != null ? principal.getTenantId().toString() : "global";
-        String expectedPrefix = String.format("avatars/%s/%s/", tenantFolder, principal.getUserId());
+        String quarantineKey = request.storageObjectKey();
 
-        if (!key.startsWith(expectedPrefix)) {
-            log.warn("Cross-user/cross-tenant avatar spoofing rejected: user={}, key={}",
-                    principal.getUserId(), key);
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Invalid storage object key ownership.");
+        // 1. Look up issued upload ticket to enforce ticket-based authorization & quarantine isolation
+        AvatarUploadTicket ticket = uploadTicketRepository.findByQuarantineKey(quarantineKey)
+                .orElseThrow(() -> {
+                    log.warn("Confirm upload rejected: No ticket issued for key {}", quarantineKey);
+                    return new ResponseStatusException(HttpStatus.FORBIDDEN, "Invalid or unauthorized upload ticket.");
+                });
+
+        // 2. Strict ownership binding: caller must match ticket user and tenant
+        if (!ticket.getUserId().equals(principal.getUserId()) ||
+                (ticket.getTenantId() != null && !ticket.getTenantId().equals(principal.getTenantId()))) {
+            log.warn("Confirm upload ownership spoofing rejected: user={}, ticketUser={}, ticketTenant={}",
+                    principal.getUserId(), ticket.getUserId(), ticket.getTenantId());
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Unauthorized upload ticket access.");
         }
 
-        // 1. Fetch uploaded bytes from S3/storage
-        byte[] bytes = storageService.getAvatarBytes(key);
+        // 3. Single-use and expiration enforcement
+        if (!ticket.isIssued()) {
+            log.warn("Confirm upload rejected: Ticket {} status is {} (re-use defense)", ticket.getId(), ticket.getStatus());
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Upload ticket has already been used or expired.");
+        }
 
-        // 2. Validate MIME magic bytes, size and dimensions
-        String filename = request.originalFilename() != null ? request.originalFilename() : "avatar.jpg";
+        if (ticket.isExpired()) {
+            ticket.expire();
+            uploadTicketRepository.save(ticket);
+            storageService.deleteAvatar(quarantineKey);
+            log.warn("Confirm upload rejected: Ticket {} has expired", ticket.getId());
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Upload ticket has expired.");
+        }
+
+        // 4. Fetch bounded bytes from quarantined storage (HEAD check + max 5MB streaming limit)
+        byte[] bytes;
+        try {
+            bytes = storageService.getAvatarBytes(quarantineKey, AvatarStorageService.MAX_AVATAR_SIZE_BYTES);
+        } catch (ResponseStatusException e) {
+            ticket.expire();
+            uploadTicketRepository.save(ticket);
+            throw e;
+        }
+
+        // 5. Validate MIME magic bytes, size and dimensions
+        String filename = request.originalFilename() != null && !request.originalFilename().isBlank()
+                ? request.originalFilename()
+                : ticket.getOriginalFilename();
         AvatarValidationService.ValidatedAvatar validated;
         try {
             validated = avatarValidationService.validateAvatarBytes(bytes, filename);
         } catch (ResponseStatusException e) {
-            storageService.deleteAvatar(key);
+            ticket.expire();
+            uploadTicketRepository.save(ticket);
+            storageService.deleteAvatar(quarantineKey);
             throw e;
         }
 
-        // 3. Persist asset initially as PENDING (never automatically CLEAN)
-        AvatarAsset asset = new AvatarAsset(
-                principal.getTenantId(),
-                principal.getUserId(),
-                key,
-                filename,
-                validated.detectedContentType(),
-                bytes.length
-        );
-        asset.setScanStatus(ScanStatus.PENDING);
-        asset = avatarAssetRepository.save(asset);
-
-        // 4. ClamAV malware threat scan
+        // 6. ClamAV malware threat scan
         AvatarMalwareScanningService.ScanResult scanResult = malwareScanningService.scanFileBytes(bytes);
 
         if (scanResult.status() == ScanStatus.CLEAN) {
+            // Promote quarantined avatar bytes to a brand-new, unguessable approved key.
+            // This guarantees the client's pre-signed PUT URL cannot overwrite approved content!
+            String approvedKey = storageService.promoteQuarantinedAvatar(
+                    quarantineKey,
+                    principal.getTenantId(),
+                    principal.getUserId(),
+                    ticket.getFileExtension(),
+                    bytes
+            );
+
+            ticket.confirm(approvedKey);
+            uploadTicketRepository.save(ticket);
+
+            AvatarAsset asset = new AvatarAsset(
+                    principal.getTenantId(),
+                    principal.getUserId(),
+                    approvedKey,
+                    filename,
+                    validated.detectedContentType(),
+                    bytes.length
+            );
             asset.approveAsClean(scanResult.details());
             asset = avatarAssetRepository.save(asset);
+
             profileService.linkAvatarAsset(principal.getTenantId(), principal.getUserId(), asset.getId());
+
+            String avatarUrl = profileService.resolveAvatarUrl(asset.getId());
+            AvatarUploadResponse response = new AvatarUploadResponse(
+                    asset.getId(),
+                    approvedKey,
+                    asset.getContentType(),
+                    asset.getFileSizeBytes(),
+                    asset.getScanStatus(),
+                    asset.getScanDetails(),
+                    avatarUrl
+            );
+
+            log.info("Successfully confirmed and promoted avatar {} for user {}", asset.getId(), principal.getUserId());
+            return ResponseEntity.status(HttpStatus.CREATED).body(response);
         } else if (scanResult.status() == ScanStatus.QUARANTINED) {
-            asset.quarantine(scanResult.details());
-            avatarAssetRepository.save(asset);
+            ticket.markQuarantined();
+            uploadTicketRepository.save(ticket);
+            storageService.deleteAvatar(quarantineKey);
             log.warn("Presigned avatar upload quarantined for user {}: {}", principal.getUserId(), scanResult.details());
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Avatar file quarantined: " + scanResult.details());
         } else {
-            asset.markInfected(scanResult.details());
-            avatarAssetRepository.save(asset);
-            storageService.deleteAvatar(key);
+            // INFECTED
+            ticket.markInfected();
+            uploadTicketRepository.save(ticket);
+            storageService.deleteAvatar(quarantineKey);
             log.warn("Presigned avatar upload rejected for user {}: {}", principal.getUserId(), scanResult.details());
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Malware detected in avatar payload: " + scanResult.details());
         }
-
-        String avatarUrl = profileService.resolveAvatarUrl(asset.getId());
-        AvatarUploadResponse response = new AvatarUploadResponse(
-                asset.getId(),
-                key,
-                asset.getContentType(),
-                asset.getFileSizeBytes(),
-                asset.getScanStatus(),
-                asset.getScanDetails(),
-                avatarUrl
-        );
-
-        return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @DeleteMapping("/avatar")
@@ -278,17 +358,23 @@ public class OnboardingController {
 
         Resource resource = storageService.loadAvatarResource(asset.getStorageObjectKey());
         if (resource == null || !resource.exists()) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Avatar file could not be found.");
+            log.error("Avatar asset {} points to missing storage key: {}", assetId, asset.getStorageObjectKey());
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Avatar resource file not found on storage.");
         }
 
-        response.setContentType(asset.getContentType());
-        response.setHeader(HttpHeaders.CACHE_CONTROL, "public, max-age=86400");
-        try (InputStream in = resource.getInputStream()) {
-            StreamUtils.copy(in, response.getOutputStream());
-            response.flushBuffer();
+        try {
+            response.setContentType(asset.getContentType());
+            response.setContentLengthLong(asset.getFileSizeBytes());
+            response.setHeader("Cache-Control", "public, max-age=86400, must-revalidate");
+            response.setHeader("ETag", "\"" + asset.getId() + "\"");
+
+            try (InputStream in = resource.getInputStream()) {
+                StreamUtils.copy(in, response.getOutputStream());
+                response.flushBuffer();
+            }
         } catch (IOException e) {
-            log.error("Failed to stream avatar asset {}", assetId, e);
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to stream avatar file.");
+            log.error("Failed to stream avatar asset {}: {}", assetId, e.getMessage());
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Error reading avatar file.");
         }
     }
 
@@ -309,22 +395,18 @@ public class OnboardingController {
     ) {
         assertAuthenticated(principal);
 
-        String clientIp = extractClientIp(servletRequest);
-        String userAgent = servletRequest.getHeader("User-Agent");
-        if (userAgent == null || userAgent.isBlank()) {
-            userAgent = "Unknown-Agent";
-        }
+        String ipAddress = resolveClientIp(servletRequest);
+        String userAgent = servletRequest.getHeader(HttpHeaders.USER_AGENT);
 
-        LegalAgreementDto result = legalAgreementService.acceptAgreement(
+        LegalAgreementDto accepted = legalAgreementService.acceptAgreement(
                 principal.getTenantId(),
                 principal.getUserId(),
                 agreementId,
                 request.agreementVersion(),
-                clientIp,
+                ipAddress,
                 userAgent
         );
-
-        return ResponseEntity.ok(result);
+        return ResponseEntity.ok(accepted);
     }
 
     @PostMapping("/complete")
@@ -341,14 +423,18 @@ public class OnboardingController {
         }
     }
 
-    private String extractClientIp(HttpServletRequest request) {
+    private String resolveClientIp(HttpServletRequest request) {
         if (trustProxyHeaders) {
-            String xForwardedFor = request.getHeader("X-Forwarded-For");
-            if (xForwardedFor != null && !xForwardedFor.isBlank()) {
-                String firstIp = xForwardedFor.split(",")[0].trim();
+            String forwarded = request.getHeader("X-Forwarded-For");
+            if (forwarded != null && !forwarded.isBlank()) {
+                String firstIp = forwarded.split(",")[0].trim();
                 if (IPV4_OR_IPV6.matcher(firstIp).matches()) {
                     return firstIp;
                 }
+            }
+            String realIp = request.getHeader("X-Real-IP");
+            if (realIp != null && !realIp.isBlank() && IPV4_OR_IPV6.matcher(realIp.trim()).matches()) {
+                return realIp.trim();
             }
         }
         return request.getRemoteAddr();

@@ -11,7 +11,7 @@ import {
   Clock,
 } from 'lucide-react'
 import type { AvatarUploadResponse } from '@nexarats/api-contracts'
-import { uploadAvatar } from '@/lib/onboardingApi'
+import { uploadAvatarDirectToS3 } from '@/lib/onboardingApi'
 
 interface StepAvatarUploadProps {
   currentAvatarUrl?: string | null
@@ -58,8 +58,7 @@ export const StepAvatarUpload: React.FC<StepAvatarUploadProps> = ({
 
     try {
       setIsUploading(true)
-      setScanStatusMessage('Checking MIME magic bytes & streaming to ClamAV scanner...')
-      const resp = await uploadAvatar(file, token)
+      const resp = await uploadAvatarDirectToS3(file, token, (msg) => setScanStatusMessage(msg))
 
       if (resp.scanStatus === 'INFECTED') {
         setUploadError(`Malware signature detected: ${resp.scanDetails || 'Threat detected'}. File rejected.`)
