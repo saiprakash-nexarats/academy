@@ -11,9 +11,13 @@ import com.nexarats.academy.learning.model.PlaybackSession;
 import com.nexarats.academy.learning.repository.LearnerLessonProgressRepository;
 import com.nexarats.academy.learning.repository.LessonMediaAssetRepository;
 import com.nexarats.academy.learning.repository.PlaybackSessionRepository;
+import com.nexarats.academy.onboarding.model.OnboardingStatus;
+import com.nexarats.academy.onboarding.model.StudentProfile;
+import com.nexarats.academy.onboarding.repository.StudentProfileRepository;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpStatus;
@@ -40,6 +44,7 @@ public class VideoPlaybackService {
     private final LearnerLessonProgressRepository lessonProgressRepository;
     private final EnrollmentRepository enrollmentRepository;
     private final MediaStorageService mediaStorageService;
+    private final StudentProfileRepository studentProfileRepository;
 
     @Value("${nexarats.learning.media.demo-fallback-enabled:true}")
     private boolean demoFallbackEnabled;
@@ -50,12 +55,24 @@ public class VideoPlaybackService {
                                 LearnerLessonProgressRepository lessonProgressRepository,
                                 EnrollmentRepository enrollmentRepository,
                                 MediaStorageService mediaStorageService) {
+        this(entitlementService, mediaAssetRepository, playbackSessionRepository,
+                lessonProgressRepository, enrollmentRepository, mediaStorageService, null);
+    }
+
+    public VideoPlaybackService(LearnerEntitlementService entitlementService,
+                                LessonMediaAssetRepository mediaAssetRepository,
+                                PlaybackSessionRepository playbackSessionRepository,
+                                LearnerLessonProgressRepository lessonProgressRepository,
+                                EnrollmentRepository enrollmentRepository,
+                                MediaStorageService mediaStorageService,
+                                @Autowired(required = false) StudentProfileRepository studentProfileRepository) {
         this.entitlementService = entitlementService;
         this.mediaAssetRepository = mediaAssetRepository;
         this.playbackSessionRepository = playbackSessionRepository;
         this.lessonProgressRepository = lessonProgressRepository;
         this.enrollmentRepository = enrollmentRepository;
         this.mediaStorageService = mediaStorageService;
+        this.studentProfileRepository = studentProfileRepository;
     }
 
     @Transactional
@@ -65,6 +82,17 @@ public class VideoPlaybackService {
 
     @Transactional
     public PlaybackSessionResponse createPlaybackSession(UUID learnerUserId, UUID lessonId, UUID tenantId) {
+        // Enforce onboarding access control: If student has an incomplete onboarding profile, deny playback session
+        if (studentProfileRepository != null && tenantId != null) {
+            Optional<StudentProfile> profileOpt = studentProfileRepository.findByTenantIdAndUserId(tenantId, learnerUserId);
+            if (profileOpt.isPresent() && profileOpt.get().getOnboardingStatus() != OnboardingStatus.COMPLETED) {
+                log.warn("Learner {} denied playback session: Academic onboarding is incomplete (status={})",
+                        learnerUserId, profileOpt.get().getOnboardingStatus());
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                        "Student academic onboarding must be completed before accessing course playback sessions.");
+            }
+        }
+
         LearnerEntitlementService.LessonAndEntitlement le = entitlementService.verifyLessonEntitlement(learnerUserId, lessonId, tenantId);
         Lesson lesson = le.lesson();
         Enrollment enrollment = le.enrollment();

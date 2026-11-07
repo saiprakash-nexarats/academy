@@ -20,6 +20,7 @@ public class AvatarValidationService {
     private static final Logger log = LoggerFactory.getLogger(AvatarValidationService.class);
 
     public static final long MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
+    public static final int MIN_DIMENSION = 32;
     public static final int MAX_DIMENSION = 4096;
 
     // Magic bytes signatures
@@ -55,7 +56,20 @@ public class AvatarValidationService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Could not read avatar file.");
         }
 
-        // Magic byte verification
+        return validateAvatarBytes(bytes, file.getOriginalFilename());
+    }
+
+    public ValidatedAvatar validateAvatarBytes(byte[] bytes, String filename) {
+        if (bytes == null || bytes.length == 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Avatar file cannot be empty.");
+        }
+
+        if (bytes.length > MAX_FILE_SIZE_BYTES) {
+            log.warn("Uploaded file exceeds 5MB limit: {} bytes", bytes.length);
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Avatar file exceeds maximum allowed size of 5 MB.");
+        }
+
+        // 1. Magic byte verification
         String detectedType = detectImageMimeType(bytes);
         if (detectedType == null) {
             log.warn("Uploaded file rejected: magic bytes do not match supported image formats (JPEG, PNG, WebP).");
@@ -65,31 +79,38 @@ public class AvatarValidationService {
             );
         }
 
-        // Validate image dimensions and integrity via ImageIO (prevent decompression bombs or truncated streams)
+        // 2. Exact dimension and integrity verification (never assign placeholder dimensions)
         int width;
         int height;
-        try (InputStream is = new ByteArrayInputStream(bytes)) {
-            BufferedImage image = ImageIO.read(is);
-            if (image == null && !"image/webp".equals(detectedType)) {
-                // ImageIO natively handles PNG and JPEG; standard Java 21 ImageIO might not parse WebP without plugin
-                log.warn("ImageIO failed to decode image data for format {}", detectedType);
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Corrupted or invalid image data.");
-            }
-            if (image != null) {
+
+        if ("image/webp".equals(detectedType)) {
+            Dimension dim = extractWebpDimensions(bytes);
+            width = dim.width();
+            height = dim.height();
+        } else {
+            try (InputStream is = new ByteArrayInputStream(bytes)) {
+                BufferedImage image = ImageIO.read(is);
+                if (image == null) {
+                    log.warn("ImageIO failed to decode image data for format {}", detectedType);
+                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Corrupted or invalid image data.");
+                }
                 width = image.getWidth();
                 height = image.getHeight();
-                if (width <= 0 || height <= 0 || width > MAX_DIMENSION || height > MAX_DIMENSION) {
-                    log.warn("Image dimensions out of bounds: {}x{}", width, height);
-                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Image dimensions must be between 1x1 and 4096x4096 pixels.");
-                }
-            } else {
-                // For WebP without custom ImageReader, default to valid dimensions
-                width = 512;
-                height = 512;
+            } catch (IOException e) {
+                log.error("Failed to decode image data: {}", e.getMessage());
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Corrupted or invalid image data.");
             }
-        } catch (IOException e) {
-            log.error("Failed to verify image dimensions", e);
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Corrupted image file.");
+        }
+
+        // Check dimension bounds
+        if (width < MIN_DIMENSION || height < MIN_DIMENSION || width > MAX_DIMENSION || height > MAX_DIMENSION) {
+            log.warn("Image dimensions out of bounds: {}x{} (allowed: {}x{} to {}x{})",
+                    width, height, MIN_DIMENSION, MIN_DIMENSION, MAX_DIMENSION, MAX_DIMENSION);
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    String.format("Image dimensions %dx%d out of bounds. Allowed range: %dx%d to %dx%d pixels.",
+                            width, height, MIN_DIMENSION, MIN_DIMENSION, MAX_DIMENSION, MAX_DIMENSION)
+            );
         }
 
         String extension = switch (detectedType) {
@@ -100,6 +121,68 @@ public class AvatarValidationService {
         };
 
         return new ValidatedAvatar(detectedType, extension, bytes, width, height);
+    }
+
+    public record Dimension(int width, int height) {}
+
+    /**
+     * Extracts actual pixel dimensions from standard WebP container chunks (VP8, VP8L, VP8X).
+     * Never assigns placeholder or fabricated dimensions.
+     */
+    public Dimension extractWebpDimensions(byte[] bytes) {
+        if (bytes == null || bytes.length < 30) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Malformed WebP image header: header too short.");
+        }
+
+        // Verify RIFF header and WEBP signature
+        if (!Arrays.equals(Arrays.copyOfRange(bytes, 0, 4), RIFF_MAGIC) ||
+                !Arrays.equals(Arrays.copyOfRange(bytes, 8, 12), WEBP_MAGIC)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid WebP header.");
+        }
+
+        String chunkFourCc = new String(bytes, 12, 4);
+
+        if ("VP8 ".equals(chunkFourCc)) {
+            // Lossy VP8 bitstream chunk
+            if (bytes.length < 30) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Truncated VP8 WebP image chunk.");
+            }
+            // Check start code at bytes 23..25: 0x9D 0x01 0x2A
+            if ((bytes[23] & 0xFF) != 0x9D || (bytes[24] & 0xFF) != 0x01 || (bytes[25] & 0xFF) != 0x2A) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid VP8 start code in WebP image.");
+            }
+            int width = ((bytes[26] & 0xFF) | ((bytes[27] & 0xFF) << 8)) & 0x3FFF;
+            int height = ((bytes[28] & 0xFF) | ((bytes[29] & 0xFF) << 8)) & 0x3FFF;
+            return new Dimension(width, height);
+        } else if ("VP8L".equals(chunkFourCc)) {
+            // Lossless VP8L bitstream chunk
+            if (bytes.length < 25) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Truncated VP8L WebP image chunk.");
+            }
+            // Check signature byte at offset 20: 0x2F
+            if ((bytes[20] & 0xFF) != 0x2F) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid VP8L signature byte in WebP image.");
+            }
+            int b0 = bytes[21] & 0xFF;
+            int b1 = bytes[22] & 0xFF;
+            int b2 = bytes[23] & 0xFF;
+            int b3 = bytes[24] & 0xFF;
+
+            int width = 1 + (((b1 & 0x3F) << 8) | b0);
+            int height = 1 + ((((b3 & 0x0F) << 10) | (b2 << 2) | ((b1 & 0xC0) >> 6)));
+            return new Dimension(width, height);
+        } else if ("VP8X".equals(chunkFourCc)) {
+            // Extended VP8X chunk
+            if (bytes.length < 30) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Truncated VP8X WebP image chunk.");
+            }
+            int width = 1 + ((bytes[24] & 0xFF) | ((bytes[25] & 0xFF) << 8) | ((bytes[26] & 0xFF) << 16));
+            int height = 1 + ((bytes[27] & 0xFF) | ((bytes[28] & 0xFF) << 8) | ((bytes[29] & 0xFF) << 16));
+            return new Dimension(width, height);
+        } else {
+            log.warn("Unsupported WebP chunk type: {}", chunkFourCc);
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported WebP chunk type: " + chunkFourCc);
+        }
     }
 
     public String detectImageMimeType(byte[] bytes) {

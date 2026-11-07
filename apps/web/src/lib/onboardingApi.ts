@@ -120,3 +120,16 @@ export async function completeOnboarding(token?: string | null): Promise<Complet
   }
   return res.json()
 }
+
+export async function deleteAvatar(token?: string | null): Promise<void> {
+  const res = await fetch('/api/v1/onboarding/avatar', {
+    method: 'DELETE',
+    headers: getAuthHeaders(token, false),
+    credentials: 'include',
+  })
+  if (!res.ok) {
+    const errorBody = await res.json().catch(() => null)
+    const message = errorBody?.message || `HTTP ${res.status}`
+    throw new Error(`Failed to remove avatar: ${message}`)
+  }
+}

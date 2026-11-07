@@ -99,15 +99,16 @@ describe('StepAvatarUpload Component Tests', () => {
       />
     )
 
-    expect(screen.getByText(/Drag and drop your photo here/i)).toBeDefined()
-    expect(screen.getByText(/Supports JPEG, PNG, or WebP up to 5 MB/i)).toBeDefined()
+    expect(screen.getByText(/Click to select or drag photo here/i)).toBeDefined()
+    expect(screen.getByText(/Supports portrait images in JPG, PNG, or WebP format/i)).toBeDefined()
   })
 
-  it('renders avatar preview and verified badge when avatar is uploaded', () => {
+  it('renders avatar preview and verified clean badge when avatar is clean', () => {
     render(
       <StepAvatarUpload
         currentAvatarUrl="/api/v1/onboarding/avatar/12345"
         currentAssetId="12345678-0000-0000-0000-000000000000"
+        currentScanStatus="CLEAN"
         onAvatarUploaded={vi.fn()}
         onAvatarRemoved={vi.fn()}
       />
@@ -116,6 +117,71 @@ describe('StepAvatarUpload Component Tests', () => {
     expect(screen.getByText(/Verified & Clean/i)).toBeDefined()
     expect(screen.getByText(/Replace Photo/i)).toBeDefined()
     expect(screen.getByText(/Remove/i)).toBeDefined()
+  })
+
+  it('renders pending status badge when avatar scan is in progress', () => {
+    render(
+      <StepAvatarUpload
+        currentAvatarUrl="/api/v1/onboarding/avatar/12345"
+        currentAssetId="12345678-0000-0000-0000-000000000000"
+        currentScanStatus="PENDING"
+        currentScanDetails="Awaiting ClamAV stream scanner"
+        onAvatarUploaded={vi.fn()}
+        onAvatarRemoved={vi.fn()}
+      />
+    )
+
+    expect(screen.getByText(/Scan in Progress/i)).toBeDefined()
+    expect(screen.getByText(/Awaiting ClamAV stream scanner/i)).toBeDefined()
+  })
+
+  it('renders quarantined badge when antivirus scan fails closed', () => {
+    render(
+      <StepAvatarUpload
+        currentAvatarUrl="/api/v1/onboarding/avatar/12345"
+        currentAssetId="12345678-0000-0000-0000-000000000000"
+        currentScanStatus="QUARANTINED"
+        currentScanDetails="ClamAV daemon offline (connection refused)"
+        onAvatarUploaded={vi.fn()}
+        onAvatarRemoved={vi.fn()}
+      />
+    )
+
+    expect(screen.getByText(/Quarantined \(Unverified\)/i)).toBeDefined()
+    expect(screen.getByText(/ClamAV daemon offline \(connection refused\)/i)).toBeDefined()
+  })
+
+  it('renders malware detected badge when infected', () => {
+    render(
+      <StepAvatarUpload
+        currentAvatarUrl="/api/v1/onboarding/avatar/12345"
+        currentAssetId="12345678-0000-0000-0000-000000000000"
+        currentScanStatus="INFECTED"
+        currentScanDetails="Threat found: Eicar-Signature"
+        onAvatarUploaded={vi.fn()}
+        onAvatarRemoved={vi.fn()}
+      />
+    )
+
+    expect(screen.getByText(/Malware Detected/i)).toBeDefined()
+    expect(screen.getByText(/Threat found: Eicar-Signature/i)).toBeDefined()
+  })
+
+  it('invokes onAvatarRemoved when remove button is clicked', () => {
+    const handleRemove = vi.fn()
+    render(
+      <StepAvatarUpload
+        currentAvatarUrl="/api/v1/onboarding/avatar/12345"
+        currentAssetId="12345678-0000-0000-0000-000000000000"
+        currentScanStatus="CLEAN"
+        onAvatarUploaded={vi.fn()}
+        onAvatarRemoved={handleRemove}
+      />
+    )
+
+    const removeBtn = screen.getByRole('button', { name: /Remove/i })
+    fireEvent.click(removeBtn)
+    expect(handleRemove).toHaveBeenCalledTimes(1)
   })
 })
 

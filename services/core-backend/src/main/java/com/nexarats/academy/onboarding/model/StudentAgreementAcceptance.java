@@ -26,6 +26,9 @@ public class StudentAgreementAcceptance {
     @Column(name = "agreement_version", nullable = false, length = 32)
     private String agreementVersion;
 
+    @Column(name = "content_hash", nullable = false, length = 64)
+    private String contentHash;
+
     @Column(name = "accepted_at", nullable = false, updatable = false)
     private Instant acceptedAt = Instant.now();
 
@@ -42,11 +45,13 @@ public class StudentAgreementAcceptance {
     }
 
     public StudentAgreementAcceptance(UUID tenantId, UUID studentUserId, UUID agreementId,
-                                      String agreementVersion, String ipAddress, String userAgent) {
+                                      String agreementVersion, String contentHash,
+                                      String ipAddress, String userAgent) {
         this.tenantId = tenantId;
         this.studentUserId = studentUserId;
         this.agreementId = agreementId;
         this.agreementVersion = agreementVersion;
+        this.contentHash = contentHash;
         this.ipAddress = ipAddress;
         this.userAgent = userAgent;
         this.acceptanceMethod = "CLICKWRAP_CHECKBOX";
@@ -91,6 +96,14 @@ public class StudentAgreementAcceptance {
 
     public void setAgreementVersion(String agreementVersion) {
         this.agreementVersion = agreementVersion;
+    }
+
+    public String getContentHash() {
+        return contentHash;
+    }
+
+    public void setContentHash(String contentHash) {
+        this.contentHash = contentHash;
     }
 
     public Instant getAcceptedAt() {

@@ -56,6 +56,10 @@ public class StudentOnboardingService {
 
     @Transactional(readOnly = true)
     public OnboardingStatusResponse getOnboardingStatus(UUID tenantId, UUID userId) {
+        if (tenantId == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Tenant context is required.");
+        }
+
         StudentProfile profile = profileRepository.findByTenantIdAndUserId(tenantId, userId).orElse(null);
 
         boolean profileCompleted = profile != null
@@ -88,12 +92,12 @@ public class StudentOnboardingService {
             overallStatus = OnboardingStatus.IN_PROGRESS;
         }
 
-        // Enrollment lookup
+        // Strict tenant-scoped enrollment lookup (null-tenant records are strictly rejected)
         UUID activeEnrollmentId = null;
         EnrollmentStatus activeEnrollmentStatus = null;
         List<Enrollment> enrollments = enrollmentRepository.findByLearnerUserIdOrderByEnrolledAtDesc(userId);
         for (Enrollment e : enrollments) {
-            if (tenantId == null || e.getTenantId() == null || tenantId.equals(e.getTenantId())) {
+            if (e.getTenantId() != null && tenantId.equals(e.getTenantId())) {
                 activeEnrollmentId = e.getId();
                 activeEnrollmentStatus = e.getStatus();
                 break;
@@ -119,9 +123,55 @@ public class StudentOnboardingService {
 
     @Transactional
     public CompleteOnboardingResponse completeOnboarding(UUID tenantId, UUID userId) {
+        if (tenantId == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Tenant context is required.");
+        }
+
         StudentProfile profile = profileRepository.findByTenantIdAndUserId(tenantId, userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Student profile has not been initialized."));
 
+        // 1. Strict Tenant Enrollment Prerequisite Verification
+        List<Enrollment> allEnrollments = enrollmentRepository.findByLearnerUserIdOrderByEnrolledAtDesc(userId);
+        List<Enrollment> tenantEnrollments = allEnrollments.stream()
+                .filter(e -> e.getTenantId() != null && tenantId.equals(e.getTenantId()))
+                .toList();
+
+        if (tenantEnrollments.isEmpty()) {
+            log.warn("Onboarding activation rejected for user {}: No enrollment found in tenant {}", userId, tenantId);
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "No enrollment found for student in the current tenant. An eligible enrollment is required before completing onboarding.");
+        }
+
+        // 2. Check Idempotency for already-completed students
+        if (profile.getOnboardingStatus() == OnboardingStatus.COMPLETED) {
+            Optional<Enrollment> activeEnr = tenantEnrollments.stream()
+                    .filter(e -> e.getStatus() == EnrollmentStatus.ACTIVE)
+                    .findFirst();
+            if (activeEnr.isPresent()) {
+                log.info("Student onboarding already completed (idempotent replay) for user {} tenant {}", userId, tenantId);
+                return new CompleteOnboardingResponse(
+                        true,
+                        "Student academic onboarding is already completed.",
+                        OnboardingStatus.COMPLETED,
+                        profile.getOnboardingCompletedAt(),
+                        EnrollmentStatus.ACTIVE
+                );
+            }
+        }
+
+        // 3. Validate eligible enrollment status (must have at least one in ENROLLED status)
+        List<Enrollment> eligibleEnrollments = tenantEnrollments.stream()
+                .filter(e -> e.getStatus() == EnrollmentStatus.ENROLLED)
+                .toList();
+
+        if (eligibleEnrollments.isEmpty()) {
+            Enrollment current = tenantEnrollments.get(0);
+            log.warn("Onboarding activation rejected for user {}: Ineligible enrollment status {}", userId, current.getStatus());
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Student has no eligible enrollment in ENROLLED status for activation. Current status: " + current.getStatus());
+        }
+
+        // 4. Validate all 4 completeness gates
         List<String> errors = new ArrayList<>();
 
         if (profile.getHeadline() == null || profile.getHeadline().isBlank()) {
@@ -157,29 +207,22 @@ public class StudentOnboardingService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Onboarding requirements incomplete: " + String.join("; ", errors));
         }
 
-        // Update profile status
+        // 5. Update profile status to COMPLETED
         Instant completedAt = Instant.now();
         profile.setOnboardingStatus(OnboardingStatus.COMPLETED);
         profile.setOnboardingCompletedAt(completedAt);
-        profile = profileRepository.save(profile);
+        profileRepository.save(profile);
 
-        // Transition student enrollments from ENROLLED to ACTIVE
-        EnrollmentStatus resultingEnrollmentStatus = null;
-        List<Enrollment> enrollments = enrollmentRepository.findByLearnerUserIdOrderByEnrolledAtDesc(userId);
-        for (Enrollment e : enrollments) {
-            if (tenantId == null || e.getTenantId() == null || tenantId.equals(e.getTenantId())) {
-                if (e.getStatus() == EnrollmentStatus.ENROLLED) {
-                    e.setStatus(EnrollmentStatus.ACTIVE);
-                    enrollmentRepository.save(e);
-                    log.info("Transitioned enrollment {} to ACTIVE upon onboarding completion for user {}", e.getId(), userId);
-                    resultingEnrollmentStatus = EnrollmentStatus.ACTIVE;
-                } else if (resultingEnrollmentStatus == null) {
-                    resultingEnrollmentStatus = e.getStatus();
-                }
-            }
+        // 6. Transition all authorized tenant enrollments from ENROLLED to ACTIVE
+        EnrollmentStatus resultingStatus = EnrollmentStatus.ACTIVE;
+        for (Enrollment e : eligibleEnrollments) {
+            e.setStatus(EnrollmentStatus.ACTIVE);
+            enrollmentRepository.save(e);
+            log.info("Transitioned enrollment {} to ACTIVE upon onboarding completion for user {} in tenant {}",
+                    e.getId(), userId, tenantId);
         }
 
-        // Sync avatarUrl to User entity
+        // 7. Synchronize avatarUrl to User entity
         if (profile.getAvatarAssetId() != null) {
             String avatarUrl = profileService.resolveAvatarUrl(profile.getAvatarAssetId());
             Optional<User> userOpt = userRepository.findById(userId);
@@ -198,7 +241,7 @@ public class StudentOnboardingService {
                 "Student academic onboarding completed successfully. Welcome to Nexarats Academy!",
                 OnboardingStatus.COMPLETED,
                 completedAt,
-                resultingEnrollmentStatus != null ? resultingEnrollmentStatus : EnrollmentStatus.ACTIVE
+                resultingStatus
         );
     }
 }

@@ -18,6 +18,7 @@ import {
   fetchStudentProfile,
   updateStudentProfile,
   fetchLegalAgreements,
+  deleteAvatar,
 } from '@/lib/onboardingApi'
 import { StepStudentInfo, type StudentInfoData } from './StepStudentInfo'
 import { StepDeveloperProfile, type DeveloperProfileData } from './StepDeveloperProfile'
@@ -61,6 +62,8 @@ export const OnboardingWizard: React.FC = () => {
 
   const [avatarAssetId, setAvatarAssetId] = useState<string | null>(null)
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
+  const [avatarScanStatus, setAvatarScanStatus] = useState<string | null>('CLEAN')
+  const [avatarScanDetails, setAvatarScanDetails] = useState<string | null>(null)
   const [agreements, setAgreements] = useState<LegalAgreementDto[]>([])
   const [errors, setErrors] = useState<Record<string, string>>({})
 
@@ -147,13 +150,29 @@ export const OnboardingWizard: React.FC = () => {
   const handleAvatarUploaded = (resp: AvatarUploadResponse) => {
     setAvatarAssetId(resp.avatarAssetId)
     setAvatarUrl(resp.avatarUrl)
-    setFeedbackMessage('Avatar photo uploaded and verified clean.')
+    setAvatarScanStatus(resp.scanStatus)
+    setAvatarScanDetails(resp.scanDetails)
+    if (resp.scanStatus === 'CLEAN') {
+      setFeedbackMessage('Avatar photo uploaded and verified clean.')
+    } else {
+      setFeedbackMessage(`Avatar uploaded. Scan status: ${resp.scanStatus}`)
+    }
     setTimeout(() => setFeedbackMessage(null), 3000)
   }
 
-  const handleAvatarRemoved = () => {
-    setAvatarAssetId(null)
-    setAvatarUrl(null)
+  const handleAvatarRemoved = async () => {
+    try {
+      await deleteAvatar(accessToken)
+      setAvatarAssetId(null)
+      setAvatarUrl(null)
+      setAvatarScanStatus(null)
+      setAvatarScanDetails(null)
+      setFeedbackMessage('Avatar photo removed successfully.')
+      setTimeout(() => setFeedbackMessage(null), 3000)
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to delete avatar'
+      setFeedbackMessage(`Error removing avatar: ${msg}`)
+    }
   }
 
   const saveDraft = async (): Promise<boolean> => {
@@ -211,7 +230,10 @@ export const OnboardingWizard: React.FC = () => {
 
     // Persist profile updates when navigating between steps 1, 2, or 3
     if (currentStep <= 2) {
-      await saveDraft()
+      const saved = await saveDraft()
+      if (!saved) {
+        return // Do not advance if draft persistence fails
+      }
     }
 
     if (currentStep < TOTAL_STEPS) {
@@ -354,6 +376,8 @@ export const OnboardingWizard: React.FC = () => {
           <StepAvatarUpload
             currentAvatarUrl={avatarUrl}
             currentAssetId={avatarAssetId}
+            currentScanStatus={avatarScanStatus}
+            currentScanDetails={avatarScanDetails}
             onAvatarUploaded={handleAvatarUploaded}
             onAvatarRemoved={handleAvatarRemoved}
             token={accessToken}

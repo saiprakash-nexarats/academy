@@ -192,7 +192,13 @@ export const DashboardPage: React.FC = () => {
               </div>
 
               <button
-                onClick={() => navigate(`/learning/courses/${continueTarget.courseId}/lessons/${continueTarget.lessonId}`)}
+                onClick={() => {
+                  if (onboardingStatus && onboardingStatus.overallStatus !== 'COMPLETED') {
+                    navigate('/portal/student/onboarding')
+                  } else {
+                    navigate(`/learning/courses/${continueTarget.courseId}/lessons/${continueTarget.lessonId}`)
+                  }
+                }}
                 className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-brand-600 hover:bg-brand-700 active:bg-brand-800 text-white font-bold text-xs sm:text-sm shadow-button-glow transition-all cursor-pointer shrink-0"
               >
                 <PlayCircle className="w-4 h-4 fill-white text-brand-600" />
@@ -331,7 +337,13 @@ export const DashboardPage: React.FC = () => {
                       {course.enrollmentNumber}
                     </span>
                     <button
-                      onClick={() => navigate(`/learning/courses/${course.courseId}`)}
+                      onClick={() => {
+                        if (onboardingStatus && onboardingStatus.overallStatus !== 'COMPLETED') {
+                          navigate('/portal/student/onboarding')
+                        } else {
+                          navigate(`/learning/courses/${course.courseId}`)
+                        }
+                      }}
                       className="inline-flex items-center gap-1.5 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold rounded-xl transition-all shadow-sm cursor-pointer"
                     >
                       <span>{course.completionPercentage > 0 ? 'Continue' : 'Start'}</span>

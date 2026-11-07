@@ -2,8 +2,7 @@ package com.nexarats.academy.onboarding.web;
 
 import com.nexarats.academy.common.security.UserPrincipal;
 import com.nexarats.academy.onboarding.dto.*;
-import com.nexarats.academy.onboarding.model.AvatarAsset;
-import com.nexarats.academy.onboarding.model.ScanStatus;
+import com.nexarats.academy.onboarding.model.*;
 import com.nexarats.academy.onboarding.repository.AvatarAssetRepository;
 import com.nexarats.academy.onboarding.service.*;
 import jakarta.servlet.http.HttpServletRequest;
@@ -11,6 +10,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -26,9 +26,9 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 @RestController
 @RequestMapping("/api/v1/onboarding")
@@ -36,6 +36,13 @@ import java.util.UUID;
 public class OnboardingController {
 
     private static final Logger log = LoggerFactory.getLogger(OnboardingController.class);
+
+    private static final Pattern IPV4_OR_IPV6 = Pattern.compile(
+            "^((25[0-5]|(2[0-4]|1\\d|[1-9]|)\\d)\\.?\\b){4}$|^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$"
+    );
+
+    @Value("${nexarats.security.trust-proxy-headers:false}")
+    private boolean trustProxyHeaders;
 
     private final StudentOnboardingService onboardingService;
     private final StudentProfileService profileService;
@@ -73,46 +80,53 @@ public class OnboardingController {
     @GetMapping("/profile")
     public ResponseEntity<StudentProfileDto> getProfile(@AuthenticationPrincipal UserPrincipal principal) {
         assertAuthenticated(principal);
-        StudentProfileDto dto = profileService.getProfileDto(principal.getTenantId(), principal.getUserId());
-        if (dto == null) {
-            // Initialize on first access
-            profileService.getOrCreateProfile(principal.getTenantId(), principal.getUserId());
-            dto = profileService.getProfileDto(principal.getTenantId(), principal.getUserId());
+        StudentProfileDto profileDto = profileService.getProfileDto(
+                principal.getTenantId(), principal.getUserId());
+        if (profileDto == null) {
+            StudentProfile initial = profileService.getOrCreateProfile(
+                    principal.getTenantId(), principal.getUserId());
+            profileDto = StudentProfileDto.fromEntity(initial, null);
         }
-        return ResponseEntity.ok(dto);
+        return ResponseEntity.ok(profileDto);
     }
 
     @PutMapping("/profile")
     public ResponseEntity<StudentProfileDto> updateProfile(
             @Valid @RequestBody UpdateProfileRequest request,
-            @AuthenticationPrincipal UserPrincipal principal) {
+            @AuthenticationPrincipal UserPrincipal principal
+    ) {
         assertAuthenticated(principal);
         StudentProfileDto updated = profileService.updateProfile(
                 principal.getTenantId(), principal.getUserId(), request);
         return ResponseEntity.ok(updated);
     }
 
+    @PostMapping("/avatar/presigned-url")
+    public ResponseEntity<AvatarStorageService.PreSignedUploadSpec> generatePresignedUploadUrl(
+            @RequestParam(defaultValue = "jpg") String extension,
+            @RequestParam(defaultValue = "image/jpeg") String contentType,
+            @AuthenticationPrincipal UserPrincipal principal
+    ) {
+        assertAuthenticated(principal);
+        AvatarStorageService.PreSignedUploadSpec spec = storageService.generatePreSignedUploadSpec(
+                principal.getTenantId(), principal.getUserId(), extension, contentType);
+        return ResponseEntity.ok(spec);
+    }
+
     @PostMapping(value = "/avatar", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<AvatarUploadResponse> uploadAvatar(
             @RequestParam("file") MultipartFile file,
-            @AuthenticationPrincipal UserPrincipal principal) {
+            @AuthenticationPrincipal UserPrincipal principal
+    ) {
         assertAuthenticated(principal);
 
-        // 1. MIME magic bytes and integrity validation
+        // 1. Strict validation of image magic-bytes, format, size and dimensions
         AvatarValidationService.ValidatedAvatar validated = avatarValidationService.validateAvatarFile(file);
 
-        // 2. Malware and heuristic scan
-        AvatarMalwareScanningService.ScanResult scanResult = malwareScanningService.scanFileBytes(validated.fileBytes());
-        if (scanResult.status() != ScanStatus.CLEAN) {
-            log.warn("Avatar upload rejected for user {}: {}", principal.getUserId(), scanResult.details());
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Avatar file failed security scan: " + scanResult.details());
-        }
-
-        // 3. Store file safely
+        // 2. Persist avatar asset initially as PENDING (never automatically CLEAN)
         String storageKey = storageService.storeAvatar(
                 principal.getTenantId(), principal.getUserId(), validated.fileExtension(), validated.fileBytes());
 
-        // 4. Record AvatarAsset entity
         AvatarAsset asset = new AvatarAsset(
                 principal.getTenantId(),
                 principal.getUserId(),
@@ -121,13 +135,33 @@ public class OnboardingController {
                 validated.detectedContentType(),
                 validated.fileBytes().length
         );
-        asset.setScanStatus(scanResult.status());
-        asset.setScanDetails(scanResult.details());
-        asset.setScannedAt(Instant.now());
+        asset.setScanStatus(ScanStatus.PENDING);
         asset = avatarAssetRepository.save(asset);
 
-        // 5. Link to StudentProfile
-        profileService.linkAvatarAsset(principal.getTenantId(), principal.getUserId(), asset.getId());
+        // 3. Antivirus threat verification via ClamAV daemon
+        AvatarMalwareScanningService.ScanResult scanResult = malwareScanningService.scanFileBytes(validated.fileBytes());
+
+        if (scanResult.status() == ScanStatus.CLEAN) {
+            asset.approveAsClean(scanResult.details());
+            asset = avatarAssetRepository.save(asset);
+
+            // Link clean avatar asset to profile
+            profileService.linkAvatarAsset(principal.getTenantId(), principal.getUserId(), asset.getId());
+        } else if (scanResult.status() == ScanStatus.QUARANTINED) {
+            asset.quarantine(scanResult.details());
+            avatarAssetRepository.save(asset);
+            log.warn("Avatar upload quarantined for user {}: {}", principal.getUserId(), scanResult.details());
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Avatar file quarantined: " + scanResult.details());
+        } else {
+            // INFECTED
+            asset.markInfected(scanResult.details());
+            avatarAssetRepository.save(asset);
+            storageService.deleteAvatar(storageKey);
+            log.warn("Avatar upload rejected for user {}: {}", principal.getUserId(), scanResult.details());
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Malware detected in avatar payload: " + scanResult.details());
+        }
 
         String avatarUrl = profileService.resolveAvatarUrl(asset.getId());
 
@@ -144,13 +178,25 @@ public class OnboardingController {
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
+    @DeleteMapping("/avatar")
+    public ResponseEntity<Void> removeAvatar(@AuthenticationPrincipal UserPrincipal principal) {
+        assertAuthenticated(principal);
+        profileService.unlinkAvatar(principal.getTenantId(), principal.getUserId());
+        return ResponseEntity.noContent().build();
+    }
+
     @GetMapping("/avatar/{assetId}")
     @PreAuthorize("permitAll()")
     public void getAvatar(@PathVariable UUID assetId, HttpServletResponse response) {
         AvatarAsset asset = avatarAssetRepository.findById(assetId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Avatar asset not found: " + assetId));
 
+        if (!asset.isActive()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Avatar asset has been deleted or deactivated.");
+        }
+
         if (asset.getScanStatus() != ScanStatus.CLEAN) {
+            log.warn("Attempted access to unapproved avatar asset {} with scanStatus {}", assetId, asset.getScanStatus());
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Avatar asset is not available.");
         }
 
@@ -182,12 +228,16 @@ public class OnboardingController {
     public ResponseEntity<LegalAgreementDto> acceptAgreement(
             @PathVariable UUID agreementId,
             @Valid @RequestBody AcceptAgreementRequest request,
-            HttpServletRequest httpRequest,
-            @AuthenticationPrincipal UserPrincipal principal) {
+            HttpServletRequest servletRequest,
+            @AuthenticationPrincipal UserPrincipal principal
+    ) {
         assertAuthenticated(principal);
 
-        String clientIp = extractClientIp(httpRequest);
-        String userAgent = httpRequest.getHeader("User-Agent");
+        String clientIp = extractClientIp(servletRequest);
+        String userAgent = servletRequest.getHeader("User-Agent");
+        if (userAgent == null || userAgent.isBlank()) {
+            userAgent = "Unknown-Agent";
+        }
 
         LegalAgreementDto result = legalAgreementService.acceptAgreement(
                 principal.getTenantId(),
@@ -216,9 +266,14 @@ public class OnboardingController {
     }
 
     private String extractClientIp(HttpServletRequest request) {
-        String xForwardedFor = request.getHeader("X-Forwarded-For");
-        if (xForwardedFor != null && !xForwardedFor.isBlank()) {
-            return xForwardedFor.split(",")[0].trim();
+        if (trustProxyHeaders) {
+            String xForwardedFor = request.getHeader("X-Forwarded-For");
+            if (xForwardedFor != null && !xForwardedFor.isBlank()) {
+                String firstIp = xForwardedFor.split(",")[0].trim();
+                if (IPV4_OR_IPV6.matcher(firstIp).matches()) {
+                    return firstIp;
+                }
+            }
         }
         return request.getRemoteAddr();
     }

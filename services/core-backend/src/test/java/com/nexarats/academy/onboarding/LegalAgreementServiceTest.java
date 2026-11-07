@@ -11,11 +11,13 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -24,6 +26,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -39,119 +42,135 @@ class LegalAgreementServiceTest {
 
     private final UUID tenantId = UUID.randomUUID();
     private final UUID userId = UUID.randomUUID();
+    private static final String TERMS_CONTENT = "Terms content";
+    private static final String TERMS_HASH = "e03a10fff7c14e283050a2cb234dd42a96381dd1f59ce0f5634ca3df7ea60bbc";
 
     @BeforeEach
     void setUp() {
         agreementService = new LegalAgreementService(agreementRepository, acceptanceRepository);
     }
 
-    private LegalAgreement createAgreement(LegalAgreementType type, String version, String content, String hash) {
+    private LegalAgreement createAgreement(LegalAgreementType type, String version, String content, String hash, UUID agTenantId) {
         LegalAgreement ag = new LegalAgreement();
         ag.setId(UUID.randomUUID());
+        ag.setTenantId(agTenantId);
         ag.setAgreementType(type);
         ag.setVersion(version);
         ag.setTitle("Test " + type.name());
         ag.setContent(content);
         ag.setContentHash(hash);
         ag.setActive(true);
-        ag.setEffectiveDate(Instant.now());
+        ag.setEffectiveDate(Instant.now().minus(1, ChronoUnit.DAYS));
         return ag;
     }
 
     @Test
-    @DisplayName("Lists agreements with accurate acceptance flags for student")
-    void listsAgreementsWithAcceptanceFlags() {
-        LegalAgreement tos = createAgreement(
-                LegalAgreementType.TERMS_OF_SERVICE,
-                "1.0",
-                "Terms content",
-                "abc"
-        );
-        LegalAgreement integrity = createAgreement(
-                LegalAgreementType.ACADEMIC_INTEGRITY,
-                "1.0",
-                "Integrity content",
-                "def"
-        );
+    @DisplayName("Lists agreements prioritizing tenant-specific agreement over global agreement")
+    void listsAgreementsPrioritizingTenantSpecific() {
+        LegalAgreement globalTos = createAgreement(LegalAgreementType.TERMS_OF_SERVICE, "1.0", "Global TOS", "hash1", null);
+        LegalAgreement tenantTos = createAgreement(LegalAgreementType.TERMS_OF_SERVICE, "1.1-tenant", "Tenant Custom TOS", "hash2", tenantId);
 
-        when(agreementRepository.findActiveAgreementsForTenant(tenantId)).thenReturn(List.of(tos, integrity));
-
-        StudentAgreementAcceptance acc = new StudentAgreementAcceptance(
-                tenantId, userId, tos.getId(), "1.0", "127.0.0.1", "Mozilla/5.0"
-        );
-        acc.setAcceptedAt(Instant.now());
-        when(acceptanceRepository.findByTenantIdAndStudentUserId(tenantId, userId)).thenReturn(List.of(acc));
+        when(agreementRepository.findActiveAgreementsForTenant(eq(tenantId), any(Instant.class)))
+                .thenReturn(List.of(globalTos, tenantTos));
+        when(acceptanceRepository.findByTenantIdAndStudentUserId(tenantId, userId)).thenReturn(List.of());
 
         List<LegalAgreementDto> dtos = agreementService.getAgreementsForStudent(tenantId, userId);
 
-        assertThat(dtos).hasSize(2);
-        LegalAgreementDto tosDto = dtos.stream().filter(d -> d.agreementType() == LegalAgreementType.TERMS_OF_SERVICE).findFirst().orElseThrow();
-        LegalAgreementDto integrityDto = dtos.stream().filter(d -> d.agreementType() == LegalAgreementType.ACADEMIC_INTEGRITY).findFirst().orElseThrow();
-
-        assertThat(tosDto.isAccepted()).isTrue();
-        assertThat(tosDto.acceptedAt()).isNotNull();
-        assertThat(integrityDto.isAccepted()).isFalse();
-        assertThat(integrityDto.acceptedAt()).isNull();
+        assertThat(dtos).hasSize(1);
+        assertThat(dtos.get(0).version()).isEqualTo("1.1-tenant");
     }
 
     @Test
-    @DisplayName("Accepts agreement and saves acceptance audit trail")
-    void acceptsAgreementSuccessfully() {
-        String content = "Terms content";
-        String validHash = "e03a10fff7c14e283050a2cb234dd42a96381dd1f59ce0f5634ca3df7ea60bbc";
-        LegalAgreement tos = createAgreement(LegalAgreementType.TERMS_OF_SERVICE, "1.0", content, validHash);
+    @DisplayName("Tenant Isolation: Rejects agreement belonging to a foreign tenant (403 Forbidden)")
+    void rejectsForeignTenantAgreement() {
+        UUID foreignTenantId = UUID.randomUUID();
+        LegalAgreement foreignAg = createAgreement(LegalAgreementType.TERMS_OF_SERVICE, "1.0", TERMS_CONTENT, TERMS_HASH, foreignTenantId);
 
-        when(agreementRepository.findById(tos.getId())).thenReturn(Optional.of(tos));
-        when(acceptanceRepository.existsByTenantIdAndStudentUserIdAndAgreementIdAndAgreementVersion(
-                tenantId, userId, tos.getId(), "1.0")).thenReturn(false);
+        when(agreementRepository.findById(foreignAg.getId())).thenReturn(Optional.of(foreignAg));
 
-        StudentAgreementAcceptance savedAcc = new StudentAgreementAcceptance(
-                tenantId, userId, tos.getId(), "1.0", "192.168.1.1", "Chrome"
+        assertThatThrownBy(() -> agreementService.acceptAgreement(tenantId, userId, foreignAg.getId(), "1.0", "127.0.0.1", "TestAgent"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("Agreement does not belong to the authenticated tenant");
+    }
+
+    @Test
+    @DisplayName("Rejects agreement that is marked inactive (400 Bad Request)")
+    void rejectsInactiveAgreement() {
+        LegalAgreement ag = createAgreement(LegalAgreementType.TERMS_OF_SERVICE, "1.0", TERMS_CONTENT, TERMS_HASH, tenantId);
+        ag.setActive(false);
+
+        when(agreementRepository.findById(ag.getId())).thenReturn(Optional.of(ag));
+
+        assertThatThrownBy(() -> agreementService.acceptAgreement(tenantId, userId, ag.getId(), "1.0", "127.0.0.1", "TestAgent"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("Agreement is no longer active");
+    }
+
+    @Test
+    @DisplayName("Rejects agreement with future effective date (400 Bad Request)")
+    void rejectsFutureEffectiveAgreement() {
+        LegalAgreement ag = createAgreement(LegalAgreementType.TERMS_OF_SERVICE, "1.0", TERMS_CONTENT, TERMS_HASH, tenantId);
+        ag.setEffectiveDate(Instant.now().plus(7, ChronoUnit.DAYS)); // Effective in the future
+
+        when(agreementRepository.findById(ag.getId())).thenReturn(Optional.of(ag));
+
+        assertThatThrownBy(() -> agreementService.acceptAgreement(tenantId, userId, ag.getId(), "1.0", "127.0.0.1", "TestAgent"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("Agreement is not yet effective");
+    }
+
+    @Test
+    @DisplayName("Idempotent acceptance preserves the original acceptedAt timestamp")
+    void preservesOriginalTimestampOnIdempotentAcceptance() {
+        LegalAgreement ag = createAgreement(LegalAgreementType.TERMS_OF_SERVICE, "1.0", TERMS_CONTENT, TERMS_HASH, tenantId);
+        when(agreementRepository.findById(ag.getId())).thenReturn(Optional.of(ag));
+
+        Instant originalTimestamp = Instant.now().minus(5, ChronoUnit.DAYS);
+        StudentAgreementAcceptance existing = new StudentAgreementAcceptance(
+                tenantId, userId, ag.getId(), "1.0", TERMS_HASH, "192.168.1.1", "Mozilla"
         );
-        when(acceptanceRepository.save(any(StudentAgreementAcceptance.class))).thenReturn(savedAcc);
+        existing.setAcceptedAt(originalTimestamp);
 
-        LegalAgreementDto result = agreementService.acceptAgreement(
-                tenantId, userId, tos.getId(), "1.0", "192.168.1.1", "Chrome"
-        );
+        when(acceptanceRepository.findByTenantIdAndStudentUserIdAndAgreementIdAndAgreementVersion(
+                tenantId, userId, ag.getId(), "1.0")).thenReturn(Optional.of(existing));
+
+        LegalAgreementDto result = agreementService.acceptAgreement(tenantId, userId, ag.getId(), "1.0", "192.168.1.2", "NewBrowser");
 
         assertThat(result.isAccepted()).isTrue();
-        verify(acceptanceRepository, times(1)).save(any(StudentAgreementAcceptance.class));
-    }
-
-    @Test
-    @DisplayName("Rejects agreement acceptance when content hash is tampered")
-    void rejectsTamperedAgreement() {
-        String content = "Terms content modified by attacker";
-        String originalHash = "5e11d21124430f8fe620cbbe8a27d7a7837894d03d0eb6ba5a05b22b64005b63";
-        LegalAgreement tos = createAgreement(LegalAgreementType.TERMS_OF_SERVICE, "1.0", content, originalHash);
-
-        when(agreementRepository.findById(tos.getId())).thenReturn(Optional.of(tos));
-
-        assertThatThrownBy(() -> agreementService.acceptAgreement(
-                tenantId, userId, tos.getId(), "1.0", "192.168.1.1", "Chrome"
-        ))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("integrity check failed");
-
+        assertThat(result.acceptedAt()).isEqualTo(originalTimestamp);
         verify(acceptanceRepository, never()).save(any());
     }
 
     @Test
-    @DisplayName("Identifies missing mandatory agreements")
-    void identifiesMissingAgreements() {
-        LegalAgreement tos = createAgreement(LegalAgreementType.TERMS_OF_SERVICE, "1.0", "a", "h1");
-        LegalAgreement integrity = createAgreement(LegalAgreementType.ACADEMIC_INTEGRITY, "1.0", "b", "h2");
-        LegalAgreement conduct = createAgreement(LegalAgreementType.CODE_OF_CONDUCT, "1.0", "c", "h3");
+    @DisplayName("Accepts agreement and records immutable content_hash in acceptance audit record")
+    void recordsContentHashInAcceptanceAuditRecord() {
+        LegalAgreement ag = createAgreement(LegalAgreementType.TERMS_OF_SERVICE, "1.0", TERMS_CONTENT, TERMS_HASH, tenantId);
+        when(agreementRepository.findById(ag.getId())).thenReturn(Optional.of(ag));
+        when(acceptanceRepository.findByTenantIdAndStudentUserIdAndAgreementIdAndAgreementVersion(
+                tenantId, userId, ag.getId(), "1.0")).thenReturn(Optional.empty());
 
-        when(agreementRepository.findActiveAgreementsForTenant(tenantId)).thenReturn(List.of(tos, integrity, conduct));
-        // User accepted only TOS
-        StudentAgreementAcceptance acc = new StudentAgreementAcceptance(tenantId, userId, tos.getId(), "1.0", "ip", "ua");
-        when(acceptanceRepository.findByTenantIdAndStudentUserId(tenantId, userId)).thenReturn(List.of(acc));
+        when(acceptanceRepository.save(any(StudentAgreementAcceptance.class)))
+                .thenAnswer(inv -> inv.getArgument(0));
 
-        List<String> missing = new ArrayList<>();
-        boolean allAccepted = agreementService.areAllMandatoryAgreementsAccepted(tenantId, userId, missing);
+        agreementService.acceptAgreement(tenantId, userId, ag.getId(), "1.0", "10.0.0.1", "Chrome 120");
 
-        assertThat(allAccepted).isFalse();
-        assertThat(missing).containsExactlyInAnyOrder("ACADEMIC_INTEGRITY", "CODE_OF_CONDUCT");
+        ArgumentCaptor<StudentAgreementAcceptance> captor = ArgumentCaptor.forClass(StudentAgreementAcceptance.class);
+        verify(acceptanceRepository).save(captor.capture());
+        StudentAgreementAcceptance saved = captor.getValue();
+
+        assertThat(saved.getContentHash()).isEqualTo(TERMS_HASH);
+        assertThat(saved.getAgreementVersion()).isEqualTo("1.0");
+        assertThat(saved.getIpAddress()).isEqualTo("10.0.0.1");
+    }
+
+    @Test
+    @DisplayName("Rejects agreement acceptance if content hash fails integrity verification")
+    void rejectsAlteredAgreementContent() {
+        LegalAgreement ag = createAgreement(LegalAgreementType.TERMS_OF_SERVICE, "1.0", "Tampered content", TERMS_HASH, tenantId);
+        when(agreementRepository.findById(ag.getId())).thenReturn(Optional.of(ag));
+
+        assertThatThrownBy(() -> agreementService.acceptAgreement(tenantId, userId, ag.getId(), "1.0", "10.0.0.1", "Chrome"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("Cryptographic integrity check failed");
     }
 }

@@ -1,12 +1,8 @@
 package com.nexarats.academy.onboarding;
 
-import com.nexarats.academy.admissions.model.EnrollmentStatus;
 import com.nexarats.academy.common.security.UserPrincipal;
 import com.nexarats.academy.onboarding.dto.*;
-import com.nexarats.academy.onboarding.model.AvatarAsset;
-import com.nexarats.academy.onboarding.model.LegalAgreementType;
-import com.nexarats.academy.onboarding.model.OnboardingStatus;
-import com.nexarats.academy.onboarding.model.ScanStatus;
+import com.nexarats.academy.onboarding.model.*;
 import com.nexarats.academy.onboarding.repository.AvatarAssetRepository;
 import com.nexarats.academy.onboarding.service.*;
 import com.nexarats.academy.onboarding.web.OnboardingController;
@@ -14,6 +10,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
@@ -22,6 +19,7 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
@@ -33,7 +31,6 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -136,7 +133,14 @@ class OnboardingControllerSecurityTest {
     }
 
     @Test
-    @DisplayName("Rejects avatar upload when malware scan detects threat")
+    @DisplayName("New AvatarAsset constructor defaults strictly to PENDING, never CLEAN")
+    void avatarAssetDefaultsToPending() {
+        AvatarAsset asset = new AvatarAsset(tenantId, userId, "avatars/key.jpg", "pic.jpg", "image/jpeg", 1024);
+        assertThat(asset.getScanStatus()).isEqualTo(ScanStatus.PENDING);
+    }
+
+    @Test
+    @DisplayName("Rejects avatar upload when malware scan detects threat and deletes file")
     void rejectsAvatarOnMalwareDetection() {
         UserPrincipal principal = createPrincipal(tenantId, userId, "ROLE_STUDENT");
         byte[] bytes = new byte[]{1, 2, 3};
@@ -145,14 +149,56 @@ class OnboardingControllerSecurityTest {
         when(avatarValidationService.validateAvatarFile(file))
                 .thenReturn(new AvatarValidationService.ValidatedAvatar("image/jpeg", "jpg", bytes, 200, 200));
 
+        when(storageService.storeAvatar(tenantId, userId, "jpg", bytes))
+                .thenReturn("avatars/quarantine-key.jpg");
+
+        AvatarAsset pendingAsset = new AvatarAsset(tenantId, userId, "avatars/quarantine-key.jpg", "test.jpg", "image/jpeg", bytes.length);
+        pendingAsset.setId(UUID.randomUUID());
+        when(avatarAssetRepository.save(any(AvatarAsset.class))).thenReturn(pendingAsset);
+
         when(malwareScanningService.scanFileBytes(bytes))
                 .thenReturn(new AvatarMalwareScanningService.ScanResult(ScanStatus.INFECTED, "Eicar-Test-Signature"));
 
         assertThatThrownBy(() -> controller.uploadAvatar(file, principal))
                 .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("Avatar file failed security scan");
+                .hasMessageContaining("Malware detected");
 
-        verify(storageService, never()).storeAvatar(any(), any(), any(), any());
+        verify(storageService).deleteAvatar("avatars/quarantine-key.jpg");
+        verify(profileService, never()).linkAvatarAsset(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("Avatar removal endpoint unlinks avatar and returns 204 No Content")
+    void removeAvatarEndpointUnlinksAvatar() {
+        UserPrincipal principal = createPrincipal(tenantId, userId, "ROLE_STUDENT");
+
+        ResponseEntity<Void> response = controller.removeAvatar(principal);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        verify(profileService).unlinkAvatar(tenantId, userId);
+    }
+
+    @Test
+    @DisplayName("Presigned URL endpoint returns short-lived, ownership-bound upload specification")
+    void generatesPresignedUploadUrl() {
+        UserPrincipal principal = createPrincipal(tenantId, userId, "ROLE_STUDENT");
+        AvatarStorageService.PreSignedUploadSpec spec = new AvatarStorageService.PreSignedUploadSpec(
+                "/api/v1/onboarding/avatar/direct-upload?key=avatars/spec.jpg",
+                "avatars/spec.jpg",
+                "PUT",
+                Instant.now().plusSeconds(900),
+                "sig-123"
+        );
+
+        when(storageService.generatePreSignedUploadSpec(tenantId, userId, "jpg", "image/jpeg"))
+                .thenReturn(spec);
+
+        ResponseEntity<AvatarStorageService.PreSignedUploadSpec> resp = controller.generatePresignedUploadUrl("jpg", "image/jpeg", principal);
+
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(resp.getBody()).isNotNull();
+        assertThat(resp.getBody().uploadUrl()).contains("direct-upload");
+        assertThat(resp.getBody().httpMethod()).isEqualTo("PUT");
     }
 
     @Test
@@ -163,6 +209,7 @@ class OnboardingControllerSecurityTest {
         asset.setId(assetId);
         asset.setContentType("image/png");
         asset.setScanStatus(ScanStatus.CLEAN);
+        asset.setActive(true);
         asset.setStorageObjectKey("avatars/t/u/file.png");
 
         when(avatarAssetRepository.findById(assetId)).thenReturn(Optional.of(asset));
@@ -184,6 +231,7 @@ class OnboardingControllerSecurityTest {
         asset.setId(assetId);
         asset.setContentType("image/png");
         asset.setScanStatus(ScanStatus.QUARANTINED);
+        asset.setActive(true);
 
         when(avatarAssetRepository.findById(assetId)).thenReturn(Optional.of(asset));
 
@@ -191,5 +239,25 @@ class OnboardingControllerSecurityTest {
         assertThatThrownBy(() -> controller.getAvatar(assetId, response))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("Avatar asset is not available");
+    }
+
+    @Test
+    @DisplayName("Security: Client IP extraction does NOT trust spoofed X-Forwarded-For when proxy trust disabled")
+    void doesNotTrustSpoofedIpWhenProxyTrustDisabled() {
+        ReflectionTestUtils.setField(controller, "trustProxyHeaders", false);
+        UserPrincipal principal = createPrincipal(tenantId, userId, "ROLE_STUDENT");
+
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setRemoteAddr("192.168.1.100");
+        request.addHeader("X-Forwarded-For", "1.1.1.1, 2.2.2.2");
+
+        UUID agId = UUID.randomUUID();
+        when(legalAgreementService.acceptAgreement(eq(tenantId), eq(userId), eq(agId), eq("1.0"), eq("192.168.1.100"), any()))
+                .thenReturn(new LegalAgreementDto(agId, LegalAgreementType.TERMS_OF_SERVICE, "1.0", "TOS", "content", "hash", Instant.now(), true, Instant.now()));
+
+        controller.acceptAgreement(agId, new AcceptAgreementRequest("1.0"), request, principal);
+
+        // Verification: The service received "192.168.1.100" (remote TCP addr), NOT the spoofed "1.1.1.1"!
+        verify(legalAgreementService).acceptAgreement(eq(tenantId), eq(userId), eq(agId), eq("1.0"), eq("192.168.1.100"), any());
     }
 }

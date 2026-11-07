@@ -36,7 +36,30 @@ public class LegalAgreementService {
 
     @Transactional(readOnly = true)
     public List<LegalAgreementDto> getAgreementsForStudent(UUID tenantId, UUID studentUserId) {
-        List<LegalAgreement> agreements = agreementRepository.findActiveAgreementsForTenant(tenantId);
+        Instant now = Instant.now();
+        List<LegalAgreement> allAgreements = agreementRepository.findActiveAgreementsForTenant(tenantId, now);
+
+        // Group by agreement type and resolve the most specific applicable agreement:
+        // Prefer tenant-specific agreement over global agreement; pick newest effective
+        Map<LegalAgreementType, LegalAgreement> resolvedAgreements = new EnumMap<>(LegalAgreementType.class);
+        for (LegalAgreement ag : allAgreements) {
+            LegalAgreementType type = ag.getAgreementType();
+            if (!resolvedAgreements.containsKey(type)) {
+                resolvedAgreements.put(type, ag);
+            } else {
+                LegalAgreement current = resolvedAgreements.get(type);
+                boolean currentIsTenantSpecific = tenantId != null && tenantId.equals(current.getTenantId());
+                boolean newIsTenantSpecific = tenantId != null && tenantId.equals(ag.getTenantId());
+
+                if (!currentIsTenantSpecific && newIsTenantSpecific) {
+                    resolvedAgreements.put(type, ag);
+                }
+            }
+        }
+
+        List<LegalAgreement> applicableAgreements = new ArrayList<>(resolvedAgreements.values());
+        applicableAgreements.sort(Comparator.comparing(LegalAgreement::getAgreementType));
+
         List<StudentAgreementAcceptance> acceptances = (tenantId != null)
                 ? acceptanceRepository.findByTenantIdAndStudentUserId(tenantId, studentUserId)
                 : acceptanceRepository.findByStudentUserId(studentUserId);
@@ -45,10 +68,10 @@ public class LegalAgreementService {
                 .collect(Collectors.toMap(
                         StudentAgreementAcceptance::getAgreementId,
                         a -> a,
-                        (existing, replacement) -> existing.getAcceptedAt().isAfter(replacement.getAcceptedAt()) ? existing : replacement
+                        (existing, replacement) -> existing.getAcceptedAt().isBefore(replacement.getAcceptedAt()) ? existing : replacement
                 ));
 
-        return agreements.stream()
+        return applicableAgreements.stream()
                 .map(ag -> {
                     StudentAgreementAcceptance acc = acceptanceMap.get(ag.getId());
                     boolean accepted = acc != null && ag.getVersion().equalsIgnoreCase(acc.getAgreementVersion());
@@ -64,42 +87,57 @@ public class LegalAgreementService {
         LegalAgreement agreement = agreementRepository.findById(agreementId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Legal agreement not found: " + agreementId));
 
+        // 1. Strict Tenant Isolation Check
+        if (agreement.getTenantId() != null && !agreement.getTenantId().equals(tenantId)) {
+            log.warn("Cross-tenant agreement acceptance rejected: student tenant={}, agreement tenant={}",
+                    tenantId, agreement.getTenantId());
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Agreement does not belong to the authenticated tenant.");
+        }
+
+        Instant now = Instant.now();
+
+        // 2. Active & Effective Date Checks
         if (!agreement.isActive()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Agreement is no longer active.");
         }
+        if (agreement.getEffectiveDate() != null && agreement.getEffectiveDate().isAfter(now)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Agreement is not yet effective.");
+        }
 
+        // 3. Version Check
         if (!agreement.getVersion().equalsIgnoreCase(agreementVersion.trim())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Submitted agreement version (" + agreementVersion + ") does not match current version (" + agreement.getVersion() + ").");
         }
 
-        // Verify SHA-256 integrity
+        // 4. Verify SHA-256 Cryptographic Integrity
         verifyAgreementIntegrity(agreement);
 
-        // Check if already accepted
-        boolean alreadyAccepted = (tenantId != null)
-                ? acceptanceRepository.existsByTenantIdAndStudentUserIdAndAgreementIdAndAgreementVersion(
-                tenantId, studentUserId, agreementId, agreement.getVersion())
-                : acceptanceRepository.existsByStudentUserIdAndAgreementIdAndAgreementVersion(
-                studentUserId, agreementId, agreement.getVersion());
+        // 5. Idempotent check preserving original acceptance timestamp
+        Optional<StudentAgreementAcceptance> existingOpt = acceptanceRepository
+                .findByTenantIdAndStudentUserIdAndAgreementIdAndAgreementVersion(
+                        tenantId, studentUserId, agreementId, agreement.getVersion());
 
-        StudentAgreementAcceptance acceptance;
-        if (alreadyAccepted) {
-            log.info("Student {} already accepted agreement {} version {}", studentUserId, agreementId, agreement.getVersion());
-            return LegalAgreementDto.fromEntity(agreement, true, Instant.now());
-        } else {
-            acceptance = new StudentAgreementAcceptance(
-                    tenantId,
-                    studentUserId,
-                    agreementId,
-                    agreement.getVersion(),
-                    ipAddress,
-                    userAgent
-            );
-            acceptance = acceptanceRepository.save(acceptance);
-            log.info("Recorded agreement acceptance: user={}, agreement={}, version={}, ip={}",
-                    studentUserId, agreementId, agreement.getVersion(), ipAddress);
+        if (existingOpt.isPresent()) {
+            StudentAgreementAcceptance existing = existingOpt.get();
+            log.info("Student {} already accepted agreement {} version {} at {}",
+                    studentUserId, agreementId, agreement.getVersion(), existing.getAcceptedAt());
+            return LegalAgreementDto.fromEntity(agreement, true, existing.getAcceptedAt());
         }
+
+        // 6. Record Immutable Acceptance Audit Entry with Content Hash
+        StudentAgreementAcceptance acceptance = new StudentAgreementAcceptance(
+                tenantId,
+                studentUserId,
+                agreementId,
+                agreement.getVersion(),
+                agreement.getContentHash(),
+                ipAddress,
+                userAgent
+        );
+        acceptance = acceptanceRepository.save(acceptance);
+        log.info("Recorded agreement acceptance: user={}, agreement={}, version={}, hash={}, ip={}",
+                studentUserId, agreementId, agreement.getVersion(), agreement.getContentHash(), ipAddress);
 
         return LegalAgreementDto.fromEntity(agreement, true, acceptance.getAcceptedAt());
     }
@@ -143,12 +181,15 @@ public class LegalAgreementService {
                 sb.append(String.format("%02x", b));
             }
             String calculatedHash = sb.toString();
+
             if (!calculatedHash.equalsIgnoreCase(agreement.getContentHash())) {
-                log.error("Agreement content hash mismatch! Expected: {}, Calculated: {}", agreement.getContentHash(), calculatedHash);
-                throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Agreement content integrity check failed.");
+                log.error("Agreement content hash mismatch! Expected: {}, Calculated: {}",
+                        agreement.getContentHash(), calculatedHash);
+                throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
+                        "Cryptographic integrity check failed for legal agreement.");
             }
         } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 digest algorithm unavailable", e);
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "SHA-256 digest unavailable.");
         }
     }
 }

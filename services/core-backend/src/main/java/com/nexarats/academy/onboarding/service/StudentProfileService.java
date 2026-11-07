@@ -1,7 +1,10 @@
 package com.nexarats.academy.onboarding.service;
 
+import com.nexarats.academy.identity.model.User;
+import com.nexarats.academy.identity.repository.UserRepository;
 import com.nexarats.academy.onboarding.dto.StudentProfileDto;
 import com.nexarats.academy.onboarding.dto.UpdateProfileRequest;
+import com.nexarats.academy.onboarding.model.AvatarAsset;
 import com.nexarats.academy.onboarding.model.OnboardingStatus;
 import com.nexarats.academy.onboarding.model.StudentProfile;
 import com.nexarats.academy.onboarding.repository.AvatarAssetRepository;
@@ -11,6 +14,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -20,11 +24,17 @@ public class StudentProfileService {
 
     private final StudentProfileRepository profileRepository;
     private final AvatarAssetRepository avatarAssetRepository;
+    private final UserRepository userRepository;
+    private final AvatarStorageService storageService;
 
     public StudentProfileService(StudentProfileRepository profileRepository,
-                                 AvatarAssetRepository avatarAssetRepository) {
+                                 AvatarAssetRepository avatarAssetRepository,
+                                 UserRepository userRepository,
+                                 AvatarStorageService storageService) {
         this.profileRepository = profileRepository;
         this.avatarAssetRepository = avatarAssetRepository;
+        this.userRepository = userRepository;
+        this.storageService = storageService;
     }
 
     @Transactional
@@ -78,6 +88,18 @@ public class StudentProfileService {
     @Transactional
     public StudentProfile linkAvatarAsset(UUID tenantId, UUID userId, UUID avatarAssetId) {
         StudentProfile profile = getOrCreateProfile(tenantId, userId);
+        UUID oldAssetId = profile.getAvatarAssetId();
+
+        // Safe replacement: if previous avatar asset exists and is different, deactivate and clean up
+        if (oldAssetId != null && !oldAssetId.equals(avatarAssetId)) {
+            avatarAssetRepository.findById(oldAssetId).ifPresent(oldAsset -> {
+                oldAsset.setActive(false);
+                avatarAssetRepository.save(oldAsset);
+                storageService.deleteAvatar(oldAsset.getStorageObjectKey());
+                log.info("Cleaned up previous replaced avatar asset {} for user {}", oldAssetId, userId);
+            });
+        }
+
         profile.setAvatarAssetId(avatarAssetId);
         if (profile.getOnboardingStatus() == OnboardingStatus.NOT_STARTED) {
             profile.setOnboardingStatus(OnboardingStatus.IN_PROGRESS);
@@ -85,6 +107,30 @@ public class StudentProfileService {
         profile = profileRepository.save(profile);
         log.info("Linked avatar asset {} to student profile for user {}", avatarAssetId, userId);
         return profile;
+    }
+
+    @Transactional
+    public void unlinkAvatar(UUID tenantId, UUID userId) {
+        StudentProfile profile = profileRepository.findByTenantIdAndUserId(tenantId, userId).orElse(null);
+        if (profile != null && profile.getAvatarAssetId() != null) {
+            UUID oldAssetId = profile.getAvatarAssetId();
+            profile.setAvatarAssetId(null);
+            profileRepository.save(profile);
+
+            // Also clear User.avatarUrl
+            userRepository.findById(userId).ifPresent(u -> {
+                u.setAvatarUrl(null);
+                userRepository.save(u);
+            });
+
+            // Mark old asset inactive and delete file
+            avatarAssetRepository.findById(oldAssetId).ifPresent(asset -> {
+                asset.setActive(false);
+                avatarAssetRepository.save(asset);
+                storageService.deleteAvatar(asset.getStorageObjectKey());
+                log.info("Safely unlinked and deleted avatar asset {} for user {}", oldAssetId, userId);
+            });
+        }
     }
 
     @Transactional(readOnly = true)

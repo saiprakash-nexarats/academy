@@ -74,6 +74,16 @@ class StudentOnboardingServiceTest {
         );
     }
 
+    private StudentProfile createCompleteProfile(UUID avatarId) {
+        StudentProfile profile = new StudentProfile(tenantId, userId);
+        profile.setHeadline("Full Stack Developer");
+        profile.setBio("Passionate learner");
+        profile.setGithubUrl("https://github.com/testuser");
+        profile.setLinkedinUrl("https://linkedin.com/in/testuser");
+        profile.setAvatarAssetId(avatarId);
+        return profile;
+    }
+
     @Test
     @DisplayName("Calculates NOT_STARTED status when no profile fields populated")
     void calculatesNotStartedStatus() {
@@ -101,65 +111,125 @@ class StudentOnboardingServiceTest {
         OnboardingStatusResponse status = onboardingService.getOnboardingStatus(tenantId, userId);
 
         assertThat(status.overallStatus()).isEqualTo(OnboardingStatus.IN_PROGRESS);
+        assertThat(status.profileCompleted()).isFalse();
         assertThat(status.canActivate()).isFalse();
     }
 
     @Test
-    @DisplayName("Rejects onboarding activation if profile headline or bio missing")
-    void rejectsActivationIfProfileIncomplete() {
-        StudentProfile profile = new StudentProfile(tenantId, userId);
-        // Headline and bio missing
+    @DisplayName("Rejects onboarding activation when no enrollment exists in the tenant")
+    void rejectsActivationWhenNoEnrollmentExists() {
+        UUID avatarId = UUID.randomUUID();
+        StudentProfile profile = createCompleteProfile(avatarId);
+
         when(profileRepository.findByTenantIdAndUserId(tenantId, userId)).thenReturn(Optional.of(profile));
+        when(enrollmentRepository.findByLearnerUserIdOrderByEnrolledAtDesc(userId)).thenReturn(Collections.emptyList());
 
         assertThatThrownBy(() -> onboardingService.completeOnboarding(tenantId, userId))
                 .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("Student headline is required");
+                .hasMessageContaining("No enrollment found for student in the current tenant");
     }
 
     @Test
-    @DisplayName("Rejects onboarding activation if developer link is missing")
-    void rejectsActivationIfDevLinkMissing() {
-        StudentProfile profile = new StudentProfile(tenantId, userId);
-        profile.setHeadline("Full Stack Developer");
-        profile.setBio("Passionate learner");
-        // No github or linkedin url
+    @DisplayName("Tenant Isolation: Rejects onboarding activation when student only has enrollment in another tenant")
+    void rejectsActivationWhenEnrollmentInDifferentTenant() {
+        UUID foreignTenantId = UUID.randomUUID();
+        UUID avatarId = UUID.randomUUID();
+        StudentProfile profile = createCompleteProfile(avatarId);
+
+        Enrollment foreignEnrollment = new Enrollment();
+        foreignEnrollment.setId(UUID.randomUUID());
+        foreignEnrollment.setTenantId(foreignTenantId); // Different tenant!
+        foreignEnrollment.setStatus(EnrollmentStatus.ENROLLED);
+
         when(profileRepository.findByTenantIdAndUserId(tenantId, userId)).thenReturn(Optional.of(profile));
+        when(enrollmentRepository.findByLearnerUserIdOrderByEnrolledAtDesc(userId)).thenReturn(List.of(foreignEnrollment));
 
         assertThatThrownBy(() -> onboardingService.completeOnboarding(tenantId, userId))
                 .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("At least one developer link");
+                .hasMessageContaining("No enrollment found for student in the current tenant");
     }
 
     @Test
-    @DisplayName("Rejects onboarding activation if avatar is not uploaded")
-    void rejectsActivationIfAvatarMissing() {
-        StudentProfile profile = new StudentProfile(tenantId, userId);
-        profile.setHeadline("Full Stack Developer");
-        profile.setBio("Passionate learner");
-        profile.setGithubUrl("https://github.com/testuser");
-        profile.setAvatarAssetId(null);
+    @DisplayName("Tenant Isolation: Null-tenant enrollment records are ignored and do not bypass isolation")
+    void ignoresNullTenantEnrollments() {
+        UUID avatarId = UUID.randomUUID();
+        StudentProfile profile = createCompleteProfile(avatarId);
+
+        Enrollment nullTenantEnrollment = new Enrollment();
+        nullTenantEnrollment.setId(UUID.randomUUID());
+        nullTenantEnrollment.setTenantId(null); // Null tenant record!
+        nullTenantEnrollment.setStatus(EnrollmentStatus.ENROLLED);
+
         when(profileRepository.findByTenantIdAndUserId(tenantId, userId)).thenReturn(Optional.of(profile));
+        when(enrollmentRepository.findByLearnerUserIdOrderByEnrolledAtDesc(userId)).thenReturn(List.of(nullTenantEnrollment));
 
         assertThatThrownBy(() -> onboardingService.completeOnboarding(tenantId, userId))
                 .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("Student profile avatar is required");
+                .hasMessageContaining("No enrollment found for student in the current tenant");
     }
 
     @Test
-    @DisplayName("Rejects onboarding activation if legal agreements are not all accepted")
+    @DisplayName("Rejects onboarding activation when student has only ineligible enrollment status (e.g. SUSPENDED)")
+    void rejectsActivationWhenEnrollmentIsIneligible() {
+        UUID avatarId = UUID.randomUUID();
+        StudentProfile profile = createCompleteProfile(avatarId);
+
+        Enrollment suspendedEnrollment = new Enrollment();
+        suspendedEnrollment.setId(UUID.randomUUID());
+        suspendedEnrollment.setTenantId(tenantId);
+        suspendedEnrollment.setStatus(EnrollmentStatus.SUSPENDED);
+
+        when(profileRepository.findByTenantIdAndUserId(tenantId, userId)).thenReturn(Optional.of(profile));
+        when(enrollmentRepository.findByLearnerUserIdOrderByEnrolledAtDesc(userId)).thenReturn(List.of(suspendedEnrollment));
+
+        assertThatThrownBy(() -> onboardingService.completeOnboarding(tenantId, userId))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("Student has no eligible enrollment in ENROLLED status for activation");
+    }
+
+    @Test
+    @DisplayName("Idempotent Activation: Returns existing completion status without re-modifying active enrollment")
+    void idempotentActivationReturnsExistingStatus() {
+        UUID avatarId = UUID.randomUUID();
+        StudentProfile profile = createCompleteProfile(avatarId);
+        Instant originalCompletedAt = Instant.now().minusSeconds(3600);
+        profile.setOnboardingStatus(OnboardingStatus.COMPLETED);
+        profile.setOnboardingCompletedAt(originalCompletedAt);
+
+        Enrollment activeEnrollment = new Enrollment();
+        activeEnrollment.setId(UUID.randomUUID());
+        activeEnrollment.setTenantId(tenantId);
+        activeEnrollment.setStatus(EnrollmentStatus.ACTIVE);
+
+        when(profileRepository.findByTenantIdAndUserId(tenantId, userId)).thenReturn(Optional.of(profile));
+        when(enrollmentRepository.findByLearnerUserIdOrderByEnrolledAtDesc(userId)).thenReturn(List.of(activeEnrollment));
+
+        CompleteOnboardingResponse resp = onboardingService.completeOnboarding(tenantId, userId);
+
+        assertThat(resp.success()).isTrue();
+        assertThat(resp.onboardingStatus()).isEqualTo(OnboardingStatus.COMPLETED);
+        assertThat(resp.enrollmentStatus()).isEqualTo(EnrollmentStatus.ACTIVE);
+        assertThat(resp.completedAt()).isEqualTo(originalCompletedAt);
+        verify(enrollmentRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("Rejects onboarding completion when mandatory legal agreements are missing")
     void rejectsActivationIfAgreementsMissing() {
         UUID avatarId = UUID.randomUUID();
-        StudentProfile profile = new StudentProfile(tenantId, userId);
-        profile.setHeadline("Full Stack Developer");
-        profile.setBio("Passionate learner");
-        profile.setGithubUrl("https://github.com/testuser");
-        profile.setAvatarAssetId(avatarId);
+        StudentProfile profile = createCompleteProfile(avatarId);
+
+        Enrollment enrollment = new Enrollment();
+        enrollment.setId(UUID.randomUUID());
+        enrollment.setTenantId(tenantId);
+        enrollment.setStatus(EnrollmentStatus.ENROLLED);
 
         AvatarAsset asset = new AvatarAsset();
         asset.setId(avatarId);
         asset.setScanStatus(ScanStatus.CLEAN);
 
         when(profileRepository.findByTenantIdAndUserId(tenantId, userId)).thenReturn(Optional.of(profile));
+        when(enrollmentRepository.findByLearnerUserIdOrderByEnrolledAtDesc(userId)).thenReturn(List.of(enrollment));
         when(avatarAssetRepository.findById(avatarId)).thenReturn(Optional.of(asset));
         when(legalAgreementService.areAllMandatoryAgreementsAccepted(eq(tenantId), eq(userId), any())).thenReturn(false);
 
@@ -172,28 +242,23 @@ class StudentOnboardingServiceTest {
     @DisplayName("Successfully activates onboarding and transitions enrollment from ENROLLED to ACTIVE")
     void completesOnboardingSuccessfully() {
         UUID avatarId = UUID.randomUUID();
-        StudentProfile profile = new StudentProfile(tenantId, userId);
-        profile.setHeadline("Full Stack Developer");
-        profile.setBio("Passionate learner");
-        profile.setGithubUrl("https://github.com/testuser");
-        profile.setLinkedinUrl("https://linkedin.com/in/testuser");
-        profile.setAvatarAssetId(avatarId);
+        StudentProfile profile = createCompleteProfile(avatarId);
 
         AvatarAsset asset = new AvatarAsset();
         asset.setId(avatarId);
         asset.setScanStatus(ScanStatus.CLEAN);
-
-        when(profileRepository.findByTenantIdAndUserId(tenantId, userId)).thenReturn(Optional.of(profile));
-        when(avatarAssetRepository.findById(avatarId)).thenReturn(Optional.of(asset));
-        when(legalAgreementService.areAllMandatoryAgreementsAccepted(eq(tenantId), eq(userId), any())).thenReturn(true);
-        when(profileRepository.save(any(StudentProfile.class))).thenAnswer(inv -> inv.getArgument(0));
 
         Enrollment enrollment = new Enrollment();
         enrollment.setId(UUID.randomUUID());
         enrollment.setTenantId(tenantId);
         enrollment.setLearnerUserId(userId);
         enrollment.setStatus(EnrollmentStatus.ENROLLED);
+
+        when(profileRepository.findByTenantIdAndUserId(tenantId, userId)).thenReturn(Optional.of(profile));
         when(enrollmentRepository.findByLearnerUserIdOrderByEnrolledAtDesc(userId)).thenReturn(List.of(enrollment));
+        when(avatarAssetRepository.findById(avatarId)).thenReturn(Optional.of(asset));
+        when(legalAgreementService.areAllMandatoryAgreementsAccepted(eq(tenantId), eq(userId), any())).thenReturn(true);
+        when(profileRepository.save(any(StudentProfile.class))).thenAnswer(inv -> inv.getArgument(0));
 
         User user = new User("student@test.com", "John", "Doe");
         when(userRepository.findById(userId)).thenReturn(Optional.of(user));

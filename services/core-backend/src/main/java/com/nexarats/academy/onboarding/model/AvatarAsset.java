@@ -57,9 +57,29 @@ public class AvatarAsset {
         this.originalFilename = originalFilename;
         this.contentType = contentType;
         this.fileSizeBytes = fileSizeBytes;
-        this.scanStatus = ScanStatus.CLEAN;
+        this.scanStatus = ScanStatus.PENDING; // Always default to PENDING before confirmed scanner response
         this.uploadedAt = Instant.now();
         this.isActive = true;
+    }
+
+    public void approveAsClean(String details) {
+        this.scanStatus = ScanStatus.CLEAN;
+        this.scanDetails = details;
+        this.scannedAt = Instant.now();
+        this.isActive = true;
+    }
+
+    public void quarantine(String details) {
+        this.scanStatus = ScanStatus.QUARANTINED;
+        this.scanDetails = details;
+        this.scannedAt = Instant.now();
+    }
+
+    public void markInfected(String details) {
+        this.scanStatus = ScanStatus.INFECTED;
+        this.scanDetails = details;
+        this.scannedAt = Instant.now();
+        this.isActive = false;
     }
 
     public UUID getId() {

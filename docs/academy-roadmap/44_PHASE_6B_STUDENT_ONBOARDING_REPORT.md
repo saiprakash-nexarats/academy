@@ -4,25 +4,27 @@
 **Phase:** Phase 6B — Student Profile & Academic Onboarding (Original Roadmap Phase 6)  
 **Feature Branch:** `feat/phase-6b-student-onboarding`  
 **Execution Agent:** Gemini 3.8 Flash (High Reasoning) — Antigravity  
-**Audit Status:** VERIFIED_COMPLETE  
+**Audit Status:** PARTIALLY_COMPLETE (Security Recovered; Live S3 Infrastructure Pending Deployment)  
 **Date:** November 7, 2026  
+**Final Recovery Reference:** [`docs/academy-roadmap/PHASE_6B_FINAL_RECOVERY_REPORT.md`](file:///c:/Users/voakh/OneDrive/Desktop/academy/docs/academy-roadmap/PHASE_6B_FINAL_RECOVERY_REPORT.md)  
 
 ---
 
 ## 1. Executive Summary & Verification Verdict
 
-Phase 6B restores and fully delivers the originally skipped **Phase 6: Student Profile & Academic Onboarding** in accordance with `docs/academy-roadmap/11_COMPLETE_70_PHASE_ROADMAP.md` and the Master Roadmap Reconciliation Framework (`docs/PHASE_ALIGNMENT.md`).
+Phase 6B restores and implements the originally skipped **Phase 6: Student Profile & Academic Onboarding** in accordance with `docs/academy-roadmap/11_COMPLETE_70_PHASE_ROADMAP.md` and the Master Roadmap Reconciliation Framework (`docs/PHASE_ALIGNMENT.md`).
 
-Prior sprints implemented basic admissions checkout and learning LMS video delivery, but left the critical student academic onboarding lifecycle unbuilt. Phase 6B bridges this gap by introducing:
+Following the initial implementation, an independent security review identified 10 mandatory recovery items, which have all been resolved and verified:
 1. **Authoritative Student Profile Lifecycle:** Enriched profile fields (headline, bio, academic background, career goals, timezone, validated GitHub and LinkedIn links) persisted in PostgreSQL via `student_profiles`.
-2. **Defensive Avatar Upload Pipeline:** Strict MIME magic-byte verification (JPEG, PNG, WebP) enforcing binary file signatures, size bounds ($\le 5\text{ MB}$), image dimension bounds ($\le 4096\times 4096\text{ px}$), anti-decompression-bomb verification, safe UUID storage keys (`target/avatars/{tenantId}/{userId}/{uuid}.ext`), and directory traversal prevention.
-3. **ClamAV Anti-Malware Daemon & Heuristic Fail-Safe:** Integration with ClamAV via TCP `zINSTREAM` socket protocol. When ClamAV is offline or in local/test environments, the system seamlessly applies deep heuristic threat pattern inspection (detecting embedded PHP tags, `<script` injections, shell scripts, and executable headers) and truthfully records scan status without falsely claiming a mock daemon executed.
-4. **Authoritative Legal Agreements Engine:** Seeded versioned legal documents (Terms of Service v1.0, Academic Integrity Agreement v1.0, and Code of Conduct v1.0) with tamper-proof SHA-256 cryptographic content hashes verified on acceptance.
-5. **Non-Repudiable Clickwrap E-Signature Audit Trail:** Persists explicit student consent in `student_agreement_acceptances` recording timestamp, client IP, user agent, agreement version, and clickwrap method.
-6. **Student Lifecycle State Machine:** Automatically transitions student status to `ACTIVE_STUDENT` and enrollment status from `ENROLLED` to `ACTIVE` upon full validation and activation.
-7. **5-Step Accessible React 19 Onboarding Wizard:** Delivered at `/portal/student/onboarding` (with `/onboarding` redirect and Dashboard banner alert) featuring responsive step progression, client-side validation, avatar drag-and-drop, full agreement drawers, draft saving, and summary checklist.
+2. **Defensive Avatar Upload Pipeline:** Strict MIME magic-byte verification (JPEG, PNG, WebP) enforcing binary file signatures, size bounds ($\le 5\text{ MB}$), native bitstream image dimension bounds ($32\times 32$ to $4096\times 4096\text{ px}$ without placeholder fallback), safe UUID storage keys (`target/avatars/{tenantId}/{userId}/{uuid}.ext`), and directory traversal prevention.
+3. **ClamAV Anti-Malware Daemon Fail-Closed:** Integration with ClamAV via TCP `zINSTREAM` socket protocol. When ClamAV is offline or times out, the service strictly fails closed (`QUARANTINED` or `PENDING`, never `CLEAN`), ensuring unverified files cannot become active avatars.
+4. **Database Defaults & Forward Migration:** Flyway `V12__avatar_scan_defaults_and_onboarding_hardening.sql` sets column default to `PENDING` and adds immutable `content_hash` tracking to consent records.
+5. **Authoritative Legal Agreements Engine:** Active and effective dates verified, cross-tenant acceptance rejected, and tamper-proof SHA-256 cryptographic content hashes verified on acceptance.
+6. **Non-Repudiable Clickwrap E-Signature Audit Trail:** Persists explicit student consent in `student_agreement_acceptances` recording timestamp, client IP (with spoofed proxy defense), user agent, agreement version, and immutable content hash. Idempotent acceptance preserves original timestamp.
+7. **Student Lifecycle State Machine:** Automatically transitions student status to `ACTIVE_STUDENT` and enrollment status from `ENROLLED` to `ACTIVE` upon full validation and activation. Backend `VideoPlaybackService` strictly gates video playback sessions on complete onboarding (`403 Forbidden`).
+8. **5-Step Accessible React 19 Onboarding Wizard:** Delivered at `/portal/student/onboarding` (with `/onboarding` redirect and Dashboard banner alert) featuring responsive step progression, draft saving with navigation guard, avatar drag-and-drop, real-time scan status badges, full agreement drawers, and summary checklist.
 
-**Final Verdict:** **`VERIFIED_COMPLETE`** (29/29 Backend Unit/Security/Modulith Tests Passing, 24/24 Frontend Tests Passing, 0 Lint Warnings, Clean Production Build).
+**Final Verdict:** **`PARTIALLY_COMPLETE`** (Core application code, security fail-closed, multi-tenant isolation, and 79 backend tests + 31 frontend tests passing; classified as `PARTIALLY_COMPLETE` per roadmap governance until live AWS S3 multi-part binary bucket credentials are provisioned in deployed staging infrastructure). See detailed recovery audit in [`PHASE_6B_FINAL_RECOVERY_REPORT.md`](file:///c:/Users/voakh/OneDrive/Desktop/academy/docs/academy-roadmap/PHASE_6B_FINAL_RECOVERY_REPORT.md).
 
 ---
 

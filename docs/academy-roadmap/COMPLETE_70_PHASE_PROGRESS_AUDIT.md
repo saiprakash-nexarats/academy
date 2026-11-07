@@ -19,17 +19,17 @@
 **Audited commit:** `feat/phase-6b-student-onboarding`  
 **Audit date:** November 7, 2026  
 **Total planned phases:** 70  
-**Verified completed:** 6  
-**Partially completed:** 6  
+**Verified completed:** 5  
+**Partially completed:** 7  
 **Implemented but unverified:** 0  
 **Not started:** 57  
 **Blocked:** 1  
-**Total remaining:** 64  
-**Verified completion percentage:** 8.57%  
-**Remaining percentage:** 91.43%  
+**Total remaining:** 65  
+**Verified completion percentage:** 7.14%  
+**Remaining percentage:** 92.86%  
 **Current milestone:** Milestone 1: Core Foundation & Minimum Usable Student Learning MVP  
 **Next recommended original roadmap phase:** Phase 5 Completion (Admissions CRM Funnel & Counseling Booking) or Phase 7 Completion (Tuition Installments & EMI)  
-**Latest Test Results:** 29/29 Backend Unit/Security/Modulith Tests Passing, 24/24 Frontend Tests Passing, 0 Lint Warnings, Clean Production Build  
+**Latest Test Results:** 45 Onboarding & Architecture Tests Passing (79 Total Unit/Security Tests Passing), 31 Frontend Tests Passing (24 Vitest + 7 Node Tests), 0 Lint Warnings, Clean Production Build  
 
 ---
 
@@ -37,7 +37,11 @@
 
 Every original roadmap phase is classified into exactly one primary status based on rigorous comparison against the mandatory requirements and acceptance criteria in `11_COMPLETE_70_PHASE_ROADMAP.md`:
 
-- **`VERIFIED_COMPLETE` (6 Phases):** Every mandatory roadmap requirement and acceptance criterion is fully implemented, verified with passing automated tests in CI, and backed by production-grade source code with zero unresolved blockers.
+- **`VERIFIED_COMPLETE` (5 Phases):** Every mandatory roadmap requirement and acceptance criterion is fully implemented, verified with passing automated tests in CI, and backed by production-grade source code with zero unresolved blockers.
+- **`PARTIALLY_COMPLETE` (7 Phases):** Core architectural entities and substantial production code exist, but at least one mandatory roadmap deliverable or acceptance criterion remains incomplete, deferred, or unverified against real external infrastructure.
+- **`IMPLEMENTED_UNVERIFIED` (0 Phases):** Code exists but has zero automated test coverage.
+- **`BLOCKED` (1 Phase):** Cannot proceed because prerequisite deliverables in earlier phases are incomplete.
+- **`NOT_STARTED` (57 Phases):** No production code exists beyond scaffold directory markers.
 - **`PARTIALLY_COMPLETE` (6 Phases):** Substantial functional components are implemented and tested, but specific mandatory roadmap features or explicit acceptance criteria remain incomplete.
 - **`IMPLEMENTED_UNVERIFIED` (0 Phases):** Code exists but lacks automated test evidence or CI validation. (All implemented code in Nexarats Academy is backed by passing tests in CI).
 - **`BLOCKED` (1 Phase):** Development or validation cannot proceed because prerequisite roadmap deliverables are incomplete. Specifically, Phase 12 (E2E MVP Release Gate) is blocked by incomplete deliverables in Phases 5, 7, 8, 9, 10, and 11.
@@ -143,7 +147,7 @@ An exhaustive, requirement-by-requirement audit of Milestone 1 was conducted aga
 
 ```
 STATUS LEGEND:
-[VC] VERIFIED_COMPLETE (6)   [PC] PARTIALLY_COMPLETE (6)   [IU] IMPLEMENTED_UNVERIFIED (0)
+[VC] VERIFIED_COMPLETE (5)   [PC] PARTIALLY_COMPLETE (7)   [IU] IMPLEMENTED_UNVERIFIED (0)
 [BL] BLOCKED (1)             [NS] NOT_STARTED (57)
 ```
 
@@ -155,7 +159,7 @@ STATUS LEGEND:
 | **3** | Public Catalog & Dynamic Programs API | M1 | `VC` | Dynamic programs, degree tracks, TanStack query integration, responsive program detail UI. | None | Flyway V7, [`ProgramController.java`](file:///c:/Users/voakh/OneDrive/Desktop/academy/services/core-backend/src/main/java/com/nexarats/academy/academic/web/ProgramController.java), [`ProgramsPage.tsx`](file:///c:/Users/voakh/OneDrive/Desktop/academy/apps/web/src/pages/ProgramsPage.tsx) | Phase 2 | Maintain catalog |
 | **4** | Modular Course Catalog & Syllabus Engine | M1 | `VC` | Hierarchical courses, modules, lessons, previewable flag, category filtering, search. | None | Flyway V8, [`CourseController.java`](file:///c:/Users/voakh/OneDrive/Desktop/academy/services/core-backend/src/main/java/com/nexarats/academy/academic/web/CourseController.java), [`CoursesPage.tsx`](file:///c:/Users/voakh/OneDrive/Desktop/academy/apps/web/src/pages/CoursesPage.tsx) | Phase 3 | Maintain syllabus |
 | **5** | Admissions Funnel, CRM Lead Pipeline & Counseling Booking | M1 | `PC` | Lead capture form, application entity, state machine (APPLIED, UNDER_REVIEW, ACCEPTED). | Counseling booking slots, interviewer calendar, CRM admin portal, email notification dispatch. | Flyway V9 (`applications`), [`ApplicationService.java`](file:///c:/Users/voakh/OneDrive/Desktop/academy/services/core-backend/src/main/java/com/nexarats/academy/admissions/service/ApplicationService.java), [`EnrollModal.tsx`](file:///c:/Users/voakh/OneDrive/Desktop/academy/apps/web/src/components/modals/EnrollModal.tsx) | Phase 2, 4 | Build counseling booking engine |
-| **6** | Student Profile & Academic Onboarding | M1 | `VC` | Student profile setup, avatar magic-byte & ClamAV scanning, legal agreements e-signing (TOS, AIA, COC) with SHA-256 integrity, clickwrap audit trail, enrollment activation to ACTIVE. | None | Flyway V11, [`onboarding/`](file:///c:/Users/voakh/OneDrive/Desktop/academy/services/core-backend/src/main/java/com/nexarats/academy/onboarding/), [`OnboardingWizard.tsx`](file:///c:/Users/voakh/OneDrive/Desktop/academy/apps/web/src/components/onboarding/OnboardingWizard.tsx), Report 44 | Phase 2, 5 | Complete (Phase 6B) |
+| **6** | Student Profile & Academic Onboarding | M1 | `PC` | Flyway V11 & V12, enriched student profile, fail-closed ClamAV daemon socket integration, magic bytes, WebP bitstream parsing, authoritative legal agreements (TOS, AIA, COC) with SHA-256 integrity, immutable consent audit, automatic enrollment activation, backend video playback gate (`403 Forbidden`). | **Live AWS S3 / MinIO multi-part binary bucket credentials in production/staging environment.** | Flyway V11 & V12, [`onboarding/`](file:///c:/Users/voakh/OneDrive/Desktop/academy/services/core-backend/src/main/java/com/nexarats/academy/onboarding/), [`OnboardingWizard.tsx`](file:///c:/Users/voakh/OneDrive/Desktop/academy/apps/web/src/components/onboarding/OnboardingWizard.tsx), [`PHASE_6B_FINAL_RECOVERY_REPORT.md`](file:///c:/Users/voakh/OneDrive/Desktop/academy/docs/academy-roadmap/PHASE_6B_FINAL_RECOVERY_REPORT.md) | Phase 2, 5 | Configure live S3 credentials in M2 / Phase 14 |
 | **7** | Tuition Billing, Installments & Payment Gateway Integration | M1 | `PC` | Payment order entity, TestPaymentGateway, webhook signature & replay defense (`webhook_events`). | Installment schedules (EMI), recurring billing, live Stripe/Razorpay adapters, PDF tax receipts. | Flyway V9 (`payment_orders`), [`PaymentOrderService.java`](file:///c:/Users/voakh/OneDrive/Desktop/academy/services/core-backend/src/main/java/com/nexarats/academy/finance/service/PaymentOrderService.java) | Phase 5 | Implement installment schedules & invoices |
 | **8** | Cohort Batch Scheduler & Timetable Engine | M1 | `PC` | Batch entity, start/end dates, max capacity seat limits, pessimistic locking. | Weekly timetable scheduling engine, room allocation, conflict detection, student calendar UI. | Flyway V9 (`cohort_batches`), [`CohortRepository.java`](file:///c:/Users/voakh/OneDrive/Desktop/academy/services/core-backend/src/main/java/com/nexarats/academy/cohort/repository/CohortRepository.java) | Phase 4 | Implement timetable scheduling engine |
 | **9** | Student Enrollment & Batch Allocation | M1 | `PC` | Enrollment lifecycle, seat allocation, multi-tenant enrollment scoping, program-track auto-enrollment. | **Waitlist queue for filled batches, dashboard cohort countdown.** | Flyway V9 (`enrollments`), [`EnrollmentService.java`](file:///c:/Users/voakh/OneDrive/Desktop/academy/services/core-backend/src/main/java/com/nexarats/academy/admissions/service/EnrollmentService.java) | Phase 7, 8 | Add waitlist queue & cohort countdown |
