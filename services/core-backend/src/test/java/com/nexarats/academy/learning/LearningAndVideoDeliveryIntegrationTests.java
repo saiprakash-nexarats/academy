@@ -150,7 +150,7 @@ public class LearningAndVideoDeliveryIntegrationTests {
         LoginResponse resp = authService.register(req, testIp, "TestAgent");
         UUID tenantId = resp.tenant() != null ? resp.tenant().id() : null;
 
-        StudentProfile profile = new StudentProfile(resp.user().id(), tenantId);
+        StudentProfile profile = new StudentProfile(tenantId, resp.user().id());
         profile.setOnboardingStatus(OnboardingStatus.COMPLETED);
         studentProfileRepository.save(profile);
 

@@ -200,9 +200,13 @@ public class OnboardingController {
 
         // 2. Validate MIME magic bytes, size and dimensions
         String filename = request.originalFilename() != null ? request.originalFilename() : "avatar.jpg";
-        AvatarValidationService.ValidatedAvatar validated = avatarValidationService.validateAvatarBytes(
-                bytes, filename
-        );
+        AvatarValidationService.ValidatedAvatar validated;
+        try {
+            validated = avatarValidationService.validateAvatarBytes(bytes, filename);
+        } catch (ResponseStatusException e) {
+            storageService.deleteAvatar(key);
+            throw e;
+        }
 
         // 3. Persist asset initially as PENDING (never automatically CLEAN)
         AvatarAsset asset = new AvatarAsset(

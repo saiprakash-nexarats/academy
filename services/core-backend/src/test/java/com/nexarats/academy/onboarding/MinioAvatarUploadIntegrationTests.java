@@ -144,21 +144,23 @@ public class MinioAvatarUploadIntegrationTests {
                 true
         );
 
-        // 3. Start mock ClamAV daemon
-        try {
-            mockClamAvServer = new ServerSocket(3310);
-            serverExecutor = Executors.newCachedThreadPool();
-            serverExecutor.submit(() -> {
-                while (!mockClamAvServer.isClosed()) {
-                    try {
-                        Socket socket = mockClamAvServer.accept();
-                        serverExecutor.submit(() -> handleClamAvSocket(socket));
-                    } catch (IOException ignored) {}
-                }
-            });
-        } catch (IOException ignored) {
-            // Already listening or port taken
-        }
+        // 3. Start mock ClamAV daemon and configure malware scanning service
+        mockClamAvServer = new ServerSocket(0);
+        int clamAvPort = mockClamAvServer.getLocalPort();
+        malwareScanningService.setClamavHost("127.0.0.1");
+        malwareScanningService.setClamavPort(clamAvPort);
+        malwareScanningService.setConnectionTimeoutMs(2000);
+        malwareScanningService.setSocketTimeoutMs(2000);
+
+        serverExecutor = Executors.newCachedThreadPool();
+        serverExecutor.submit(() -> {
+            while (!mockClamAvServer.isClosed()) {
+                try {
+                    Socket socket = mockClamAvServer.accept();
+                    serverExecutor.submit(() -> handleClamAvSocket(socket));
+                } catch (IOException ignored) {}
+            }
+        });
 
         testCohort = cohortRepository.findAll().stream().findFirst().orElseGet(() -> {
             Cohort c = new Cohort("MINIO-COHORT-" + UUID.randomUUID().toString().substring(0, 8), "Minio Cohort", LocalDate.now(), Instant.now(), 50);
@@ -171,16 +173,22 @@ public class MinioAvatarUploadIntegrationTests {
              InputStream in = socket.getInputStream();
              OutputStream out = socket.getOutputStream()) {
             byte[] buf = new byte[4096];
-            int read = in.read(buf);
-            if (read > 0) {
-                String cmd = new String(buf, 0, read, StandardCharsets.US_ASCII);
-                if (cmd.contains("EICAR")) {
-                    out.write("stream: Eicar-Signature FOUND\0".getBytes(StandardCharsets.US_ASCII));
-                } else {
-                    out.write("stream: OK\0".getBytes(StandardCharsets.US_ASCII));
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            int read;
+            while ((read = in.read(buf)) > 0) {
+                baos.write(buf, 0, read);
+                String received = baos.toString(StandardCharsets.US_ASCII);
+                if (received.contains("EICAR") || received.length() > 500) {
+                    break;
                 }
-                out.flush();
             }
+            String received = baos.toString(StandardCharsets.US_ASCII);
+            if (received.contains("EICAR")) {
+                out.write("stream: Eicar-Signature FOUND\0".getBytes(StandardCharsets.US_ASCII));
+            } else {
+                out.write("stream: OK\0".getBytes(StandardCharsets.US_ASCII));
+            }
+            out.flush();
         } catch (IOException ignored) {}
     }
 
@@ -380,12 +388,12 @@ public class MinioAvatarUploadIntegrationTests {
         String uploadUrl = presignJson.get("uploadUrl").asText();
         String storageObjectKey = presignJson.get("storageObjectKey").asText();
 
-        // 2. Upload EICAR signature bytes disguised as PNG image
-        byte[] validHeader = new byte[]{(byte) 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A};
+        // 2. Upload valid PNG image containing embedded/appended EICAR signature bytes
+        byte[] validPng = createValidPngBytes(200, 200);
         byte[] eicarBytes = "X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*".getBytes(StandardCharsets.US_ASCII);
-        byte[] maliciousPayload = new byte[validHeader.length + eicarBytes.length];
-        System.arraycopy(validHeader, 0, maliciousPayload, 0, validHeader.length);
-        System.arraycopy(eicarBytes, 0, maliciousPayload, validHeader.length, eicarBytes.length);
+        byte[] maliciousPayload = new byte[validPng.length + eicarBytes.length];
+        System.arraycopy(validPng, 0, maliciousPayload, 0, validPng.length);
+        System.arraycopy(eicarBytes, 0, maliciousPayload, validPng.length, eicarBytes.length);
 
         HttpClient client = HttpClient.newHttpClient();
         HttpRequest uploadRequest = HttpRequest.newBuilder()
