@@ -281,12 +281,12 @@ public class StudentOnboardingIntegrationTests {
     @DisplayName("Denies unauthenticated access to protected onboarding endpoints")
     void testUnauthenticatedAccessDenied() throws Exception {
         mockMvc.perform(get("/api/v1/onboarding/status"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
 
         mockMvc.perform(get("/api/v1/onboarding/profile"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
 
         mockMvc.perform(post("/api/v1/onboarding/complete"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
     }
 }

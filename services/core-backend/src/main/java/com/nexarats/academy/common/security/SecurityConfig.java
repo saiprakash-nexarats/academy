@@ -145,6 +145,12 @@ public class SecurityConfig {
                                 "/api/v1/payments/webhooks/**"
                         ).permitAll()
 
+                        // Public Avatar Streaming Endpoint (Asset ID and Clean Scan Status Validated at Controller)
+                        .requestMatchers(
+                                org.springframework.http.HttpMethod.GET,
+                                "/api/v1/onboarding/avatar/**"
+                        ).permitAll()
+
                         // Authorized Media Streaming Endpoint (Session Token Validated at Service Level)
                         .requestMatchers(
                                 org.springframework.http.HttpMethod.GET,
