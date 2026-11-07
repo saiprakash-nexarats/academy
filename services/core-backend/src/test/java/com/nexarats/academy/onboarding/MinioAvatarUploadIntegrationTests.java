@@ -136,8 +136,7 @@ public class MinioAvatarUploadIntegrationTests {
                 true
         );
 
-        testCohort = new Cohort("MINIO-COHORT-" + UUID.randomUUID().toString().substring(0, 8), null, 50);
-        cohortRepository.save(testCohort);
+        testCohort = cohortRepository.findAll().stream().findFirst().orElse(null);
     }
 
     @AfterAll
@@ -196,27 +195,26 @@ public class MinioAvatarUploadIntegrationTests {
 
     private record UserSession(String token, UUID userId, UUID tenantId) {}
 
-    private UserSession registerStudent(String email, String orgSlug, String orgName) {
-        RegisterRequest req = new RegisterRequest(
-                email, "StrongPass@123", "Minio", "Student",
-                orgSlug, orgName, "ROLE_STUDENT", "8005550199"
-        );
-        LoginResponse resp = authService.register(req);
-        User user = userRepository.findByEmailIgnoreCase(email).orElseThrow();
+    private UserSession registerStudent(String email) {
+        String testIp = "10.0." + (int)(Math.random() * 200) + "." + (int)(Math.random() * 200);
+        RegisterRequest req = new RegisterRequest(email, "StrongPass@123", "Minio", "Student", null);
+        LoginResponse resp = authService.register(req, testIp, "TestAgent");
         UUID tenantId = resp.tenant() != null ? resp.tenant().id() : null;
 
-        Enrollment enr = new Enrollment("ENR-MIN-" + UUID.randomUUID().toString().substring(0, 6), user.getId(), testCohort.getId(), EnrollmentStatus.ENROLLED);
-        enr.setTenantId(tenantId);
-        enrollmentRepository.save(enr);
+        if (testCohort != null) {
+            Enrollment enr = new Enrollment("ENR-MIN-" + UUID.randomUUID().toString().substring(0, 6), resp.user().id(), testCohort.getId(), EnrollmentStatus.ENROLLED);
+            enr.setTenantId(tenantId);
+            enrollmentRepository.save(enr);
+        }
 
-        return new UserSession(resp.accessToken(), user.getId(), tenantId);
+        return new UserSession(resp.accessToken(), resp.user().id(), tenantId);
     }
 
     @Test
     @DisplayName("S3/MinIO Avatar Workflow: Pre-sign -> SigV4 Upload -> Confirm Quarantine & Scan -> Approve -> Retrieve")
     void testCompleteS3AvatarLifecycle() throws Exception {
         String email = "minio_learner_" + UUID.randomUUID() + "@example.com";
-        UserSession session = registerStudent(email, "minio-org", "Minio Org");
+        UserSession session = registerStudent(email);
 
         // 1. Request real AWS SigV4 pre-signed PUT URL
         MvcResult presignResult = mockMvc.perform(post("/api/v1/onboarding/avatar/presigned-url")
@@ -298,10 +296,10 @@ public class MinioAvatarUploadIntegrationTests {
     @DisplayName("S3/MinIO Avatar Security: Confirm upload rejects spoofed storage keys from other users")
     void testConfirmUploadRejectsCrossUserKeySpoofing() throws Exception {
         String emailA = "user_a_" + UUID.randomUUID() + "@example.com";
-        UserSession sessionA = registerStudent(emailA, "org-a", "Org A");
+        UserSession sessionA = registerStudent(emailA);
 
         String emailB = "user_b_" + UUID.randomUUID() + "@example.com";
-        UserSession sessionB = registerStudent(emailB, "org-b", "Org B");
+        UserSession sessionB = registerStudent(emailB);
 
         // User B attempts to claim an object key belonging to User A
         String forgedKey = String.format("avatars/%s/%s/target.png", sessionA.tenantId(), sessionA.userId());
@@ -318,7 +316,7 @@ public class MinioAvatarUploadIntegrationTests {
     @DisplayName("S3/MinIO Malware Defense: Harmless EICAR payload uploaded via presigned URL is detected, infected and purged from S3")
     void testEicarPayloadUploadedToS3IsQuarantinedAndPurged() throws Exception {
         String email = "malware_test_" + UUID.randomUUID() + "@example.com";
-        UserSession session = registerStudent(email, "eicar-org", "Eicar Org");
+        UserSession session = registerStudent(email);
 
         // 1. Get presigned upload URL
         MvcResult presignResult = mockMvc.perform(post("/api/v1/onboarding/avatar/presigned-url")

@@ -474,7 +474,7 @@ public class LearningSecurityIntegrationTests {
         mockMvc.perform(post("/api/v1/learning/lessons/" + testLesson.getId() + "/playback-session")
                         .header("Authorization", "Bearer " + session.token()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.playbackToken").isString())
+                .andExpect(jsonPath("$.sessionToken").isString())
                 .andExpect(jsonPath("$.streamUrl").isString());
     }
 }
