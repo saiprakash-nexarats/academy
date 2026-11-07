@@ -42,3 +42,17 @@
 - **Decision:** Retain normalized, authoritative counting via `learner_lesson_progress` queries. Denormalized counter columns are prone to write drift and race conditions during concurrent multi-tab sessions.
 - **Status:** APPROVED & DOCUMENTED in Phase 6 Recovery.
 
+---
+
+## ADR-006: Student Onboarding Lifecycle, Avatar Security & ClamAV Heuristic Resilience
+- **Context:** Original Roadmap Phase 6 required ClamAV anti-malware scanning for profile avatars. In local environments or lightweight CI runners without a ClamAV daemon container, connecting to port 3310 causes connection errors.
+- **Decision:** Implement a dual-mode scanning service: attempt live ClamAV daemon connection via TCP `zINSTREAM`. If unreachable, fallback to deep binary heuristic pattern inspection (PHP tags, `<script>`, shell shebangs, MZ/ELF headers) and transparently record the heuristic scan status in the audit log without pretending a live ClamAV daemon ran.
+- **Status:** APPROVED & IMPLEMENTED in Phase 6B.
+
+---
+
+## ADR-007: Cryptographic Legal Agreement Integrity & Clickwrap Audit Trail
+- **Context:** Legal terms (Terms of Service, Academic Integrity, Code of Conduct) must be legally enforceable and immune to silent post-acceptance modifications.
+- **Decision:** Persist SHA-256 hashes of agreement content in `legal_agreements.content_hash`. Re-compute and verify the hash before recording e-signatures in `student_agreement_acceptances` with client IP, user agent, and timestamp.
+- **Status:** APPROVED & IMPLEMENTED in Phase 6B.
+

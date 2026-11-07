@@ -39,7 +39,7 @@ The table below reconciles Git implementation phases with the master 70-phase sp
 | *Merged into P5* | Payment Gateway & Transaction Logs | **Phase 7** | Tuition Billing, Installments & Payment Gateway | Milestone 1 | **Implemented (Basic Checkout only; Installments pending)** |
 | *Merged into P5* | Basic Cohort Model | **Phase 8** | Cohort Batch Scheduler & Timetable Engine | Milestone 1 | **Partial (Timetable & Conflict Engine pending)** |
 | *Merged into P5* | Student Course Enrollment State | **Phase 9** | Student Enrollment & Batch Allocation | Milestone 1 | **Partially Complete (Waitlist queues & cohort countdown pending)** |
-| **Skipped in Git**| Legal Onboarding & Profile | **Phase 6** | **Student Profile & Academic Onboarding** | Milestone 1 | **NOT STARTED (Immediate Target Phase 6B)** |
+| **Phase 6B** | Student Profile & Academic Onboarding | **Phase 6** | **Student Profile & Academic Onboarding** | Milestone 1 | **Verified Complete (Report 44)** |
 | **Git Phase 6** | Student Learning Dashboard | **Phase 10** | Student LMS Dashboard (Core Portal Shell) | Milestone 1 | **Partially Complete (Streaks & announcements pending)** |
 | **Git Phase 6** | Video Streaming & Watch Progress | **Phase 11** | Modular Curriculum Video Player & Progress | Milestone 1 | **Partially Complete (Video bookmarks & transcript drawer pending)** |
 | **Blocked Gate**| Formal Milestone 1 Acceptance | **Phase 12** | End-to-End MVP Milestone Release Gate | Milestone 1 | **BLOCKED (Requires Phase 6 and prerequisites completion)** |

@@ -6,13 +6,13 @@
 **Current Baseline Commit:** `582faea`  
 **Current Status Summary:**
 - **Total Phases:** 70
-- **Verified Complete:** 5 (7.14%)
+- **Verified Complete:** 6 (8.57%)
 - **Partially Complete:** 6 (Phases 5, 7, 8, 9, 10, 11)
 - **Implemented Unverified:** 0
 - **Blocked:** 1 (Phase 12 — blocked by incomplete prerequisites)
-- **Not Started:** 58 (82.86%)
-- **Current Milestone:** Milestone 1 (38.46% Verified Complete — 5/13)
-- **Next Immediate Action:** Phase 6B: Student Profile & Academic Onboarding
+- **Not Started:** 57 (81.43%)
+- **Current Milestone:** Milestone 1 (46.15% Verified Complete — 6/13)
+- **Next Immediate Action:** Phase 5 Completion (Admissions Counseling & CRM) or Phase 7 Completion (Tuition Installments & EMI)
 
 ---
 
@@ -30,8 +30,8 @@
   - Hierarchical courses, modules, and lessons catalog, previewable lessons gate (13 backend course tests).
 - [ ] **Phase 5: Admissions Funnel & CRM Lead Pipeline**
   - *Status:* **PARTIALLY COMPLETE**. Lead capture form and applications table implemented; counseling booking engine and CRM admin review portal pending.
-- [ ] **Phase 6: Student Profile & Academic Onboarding**
-  - *Status:* **NOT STARTED (PENDING PREREQUISITE)**. Requires onboarding wizard, student profiles, legal terms e-signing, avatar upload, ClamAV integration (Scheduled as Phase 6B).
+- [x] **Phase 6: Student Profile & Academic Onboarding**
+  - *Status:* **VERIFIED_COMPLETE**. Flyway V11 schema, multi-step onboarding wizard at `/portal/student/onboarding`, avatar magic-byte & ClamAV scanning engine, authoritative legal agreements (TOS, AIA, COC) with SHA-256 verification and clickwrap e-signature audit trail, automatic student enrollment activation to `ACTIVE`. (Report 44).
 - [ ] **Phase 7: Tuition Billing, Installments & Payment Gateway Integration**
   - *Status:* **PARTIALLY COMPLETE**. Upfront test payment gateway and webhook replay defense implemented; recurring installment plans (EMI) and PDF invoices pending.
 - [ ] **Phase 8: Cohort Batch Scheduler & Timetable Engine**
