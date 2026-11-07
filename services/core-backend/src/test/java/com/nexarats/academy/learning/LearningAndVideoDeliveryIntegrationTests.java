@@ -31,7 +31,7 @@ import com.nexarats.academy.learning.model.LearnerLessonProgress;
 import com.nexarats.academy.learning.model.PlaybackSession;
 import com.nexarats.academy.learning.repository.LearnerLessonProgressRepository;
 import com.nexarats.academy.learning.repository.PlaybackSessionRepository;
-import com.nexarats.academy.onboarding.model.AcademicOnboardingStatus;
+import com.nexarats.academy.onboarding.model.OnboardingStatus;
 import com.nexarats.academy.onboarding.model.StudentProfile;
 import com.nexarats.academy.onboarding.repository.StudentProfileRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -151,7 +151,7 @@ public class LearningAndVideoDeliveryIntegrationTests {
         UUID tenantId = resp.tenant() != null ? resp.tenant().id() : null;
 
         StudentProfile profile = new StudentProfile(resp.user().id(), tenantId);
-        profile.setAcademicOnboardingStatus(AcademicOnboardingStatus.COMPLETED);
+        profile.setOnboardingStatus(OnboardingStatus.COMPLETED);
         studentProfileRepository.save(profile);
 
         return new UserAuth(resp.accessToken(), resp.user().id(), tenantId);
