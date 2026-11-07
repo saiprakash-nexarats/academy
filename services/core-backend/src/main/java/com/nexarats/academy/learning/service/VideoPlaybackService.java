@@ -59,6 +59,7 @@ public class VideoPlaybackService {
                 lessonProgressRepository, enrollmentRepository, mediaStorageService, null);
     }
 
+    @Autowired
     public VideoPlaybackService(LearnerEntitlementService entitlementService,
                                 LessonMediaAssetRepository mediaAssetRepository,
                                 PlaybackSessionRepository playbackSessionRepository,

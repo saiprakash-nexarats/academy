@@ -26,3 +26,4 @@ ALTER TABLE student_agreement_acceptances ALTER COLUMN content_hash SET NOT NULL
 -- 3. Composite index for ultra-fast idempotent acceptance lookups
 CREATE INDEX IF NOT EXISTS idx_saa_tenant_user_ag_ver
 ON student_agreement_acceptances(tenant_id, student_user_id, agreement_id, agreement_version);
+
