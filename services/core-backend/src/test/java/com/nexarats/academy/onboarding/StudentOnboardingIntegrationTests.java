@@ -95,6 +95,9 @@ public class StudentOnboardingIntegrationTests {
     private StudentProfileService studentProfileService;
 
     @Autowired
+    private com.nexarats.academy.tenant.TenantService tenantService;
+
+    @Autowired
     private CourseRepository courseRepository;
 
     @Autowired
@@ -392,8 +395,11 @@ public class StudentOnboardingIntegrationTests {
     @Test
     @DisplayName("Data Security: Multiple tenants can publish version '1.0' agreements independently without unique constraint collisions")
     void testMultipleTenantsCanPublishSameVersionAgreements() {
-        UUID tenantA = UUID.randomUUID();
-        UUID tenantB = UUID.randomUUID();
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+        com.nexarats.academy.tenant.Tenant tA = tenantService.createTenant("agree-tenant-a-" + suffix, "Agreement Tenant A");
+        com.nexarats.academy.tenant.Tenant tB = tenantService.createTenant("agree-tenant-b-" + suffix, "Agreement Tenant B");
+        UUID tenantA = tA.getId();
+        UUID tenantB = tB.getId();
 
         LegalAgreement agreementA = new LegalAgreement(
                 tenantA,
@@ -427,13 +433,23 @@ public class StudentOnboardingIntegrationTests {
     @Test
     @DisplayName("Data Security: Cross-tenant and cross-user avatar linking is strictly rejected (403 Forbidden)")
     void testCrossTenantAndCrossUserAvatarLinkingRejected() {
-        UUID tenantA = UUID.randomUUID();
-        UUID tenantB = UUID.randomUUID();
-        UUID userA = UUID.randomUUID();
-        UUID userB = UUID.randomUUID();
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+        com.nexarats.academy.tenant.Tenant tA = tenantService.createTenant("cross-tenant-a-" + suffix, "Cross Tenant A");
+        com.nexarats.academy.tenant.Tenant tB = tenantService.createTenant("cross-tenant-b-" + suffix, "Cross Tenant B");
+        UUID tenantA = tA.getId();
+        UUID tenantB = tB.getId();
+
+        String testIp = "10.0.88.1";
+        RegisterRequest regA = new RegisterRequest("cross_user_a_" + suffix + "@example.com", "Password2026!", "User", "A", null);
+        LoginResponse respA = authService.register(regA, testIp, "TestAgent");
+        UUID userA = respA.user().id();
+
+        RegisterRequest regB = new RegisterRequest("cross_user_b_" + suffix + "@example.com", "Password2026!", "User", "B", null);
+        LoginResponse respB = authService.register(regB, testIp, "TestAgent");
+        UUID userB = respB.user().id();
 
         // Create avatar owned by userA in tenantA
-        AvatarAsset assetA = new AvatarAsset(tenantA, userA, "avatars/tA/uA/1.png", "1.png", "image/png", 1024);
+        AvatarAsset assetA = new AvatarAsset(tenantA, userA, "avatars/" + tenantA + "/" + userA + "/1.png", "1.png", "image/png", 1024);
         assetA = avatarAssetRepository.save(assetA);
 
         final UUID assetId = assetA.getId();
