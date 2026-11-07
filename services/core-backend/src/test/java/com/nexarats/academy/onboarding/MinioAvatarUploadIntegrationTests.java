@@ -1,5 +1,6 @@
 package com.nexarats.academy.onboarding;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nexarats.academy.admissions.model.Enrollment;
 import com.nexarats.academy.admissions.model.EnrollmentStatus;
@@ -32,7 +33,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -47,14 +47,20 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.time.LocalDate;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
@@ -110,14 +116,12 @@ public class MinioAvatarUploadIntegrationTests {
     private int s3MockPort;
     private final Map<String, byte[]> s3Storage = new ConcurrentHashMap<>();
 
+    private ServerSocket mockClamAvServer;
+    private ExecutorService serverExecutor;
     private Cohort testCohort;
 
     @BeforeAll
     void initS3MockAndContext() throws Exception {
-        if (objectMapper != null) {
-            objectMapper.findAndRegisterModules();
-        }
-
         mockMvc = MockMvcBuilders.webAppContextSetup(context)
                 .apply(springSecurity())
                 .build();
@@ -140,14 +144,58 @@ public class MinioAvatarUploadIntegrationTests {
                 true
         );
 
-        testCohort = new Cohort("MINIO-COHORT-" + UUID.randomUUID().toString().substring(0, 8), null, 50);
-        cohortRepository.save(testCohort);
+        // 3. Start mock ClamAV daemon
+        try {
+            mockClamAvServer = new ServerSocket(3310);
+            serverExecutor = Executors.newCachedThreadPool();
+            serverExecutor.submit(() -> {
+                while (!mockClamAvServer.isClosed()) {
+                    try {
+                        Socket socket = mockClamAvServer.accept();
+                        serverExecutor.submit(() -> handleClamAvSocket(socket));
+                    } catch (IOException ignored) {}
+                }
+            });
+        } catch (IOException ignored) {
+            // Already listening or port taken
+        }
+
+        testCohort = cohortRepository.findAll().stream().findFirst().orElseGet(() -> {
+            Cohort c = new Cohort("MINIO-COHORT-" + UUID.randomUUID().toString().substring(0, 8), "Minio Cohort", LocalDate.now(), Instant.now(), 50);
+            return cohortRepository.save(c);
+        });
+    }
+
+    private void handleClamAvSocket(Socket socket) {
+        try (socket;
+             InputStream in = socket.getInputStream();
+             OutputStream out = socket.getOutputStream()) {
+            byte[] buf = new byte[4096];
+            int read = in.read(buf);
+            if (read > 0) {
+                String cmd = new String(buf, 0, read, StandardCharsets.US_ASCII);
+                if (cmd.contains("EICAR")) {
+                    out.write("stream: Eicar-Signature FOUND\0".getBytes(StandardCharsets.US_ASCII));
+                } else {
+                    out.write("stream: OK\0".getBytes(StandardCharsets.US_ASCII));
+                }
+                out.flush();
+            }
+        } catch (IOException ignored) {}
     }
 
     @AfterAll
     void tearDownS3Mock() {
         if (s3MockServer != null) {
             s3MockServer.stop(0);
+        }
+        if (mockClamAvServer != null && !mockClamAvServer.isClosed()) {
+            try {
+                mockClamAvServer.close();
+            } catch (IOException ignored) {}
+        }
+        if (serverExecutor != null) {
+            serverExecutor.shutdownNow();
         }
     }
 
@@ -158,7 +206,6 @@ public class MinioAvatarUploadIntegrationTests {
             String path = exchange.getRequestURI().getPath();
 
             if ("PUT".equalsIgnoreCase(method)) {
-                // Read uploaded object bytes
                 try (InputStream in = exchange.getRequestBody()) {
                     byte[] data = in.readAllBytes();
                     s3Storage.put(path, data);
@@ -200,27 +247,24 @@ public class MinioAvatarUploadIntegrationTests {
 
     private record UserSession(String token, UUID userId, UUID tenantId) {}
 
-    private UserSession registerStudent(String email, String orgSlug, String orgName) {
-        RegisterRequest req = new RegisterRequest(
-                email, "StrongPass@123", "Minio", "Student",
-                orgSlug, orgName, "ROLE_STUDENT", "8005550199"
-        );
-        LoginResponse resp = authService.register(req);
-        User user = userRepository.findByEmailIgnoreCase(email).orElseThrow();
+    private UserSession registerStudent(String email) {
+        String testIp = "10.0." + (int)(Math.random() * 200) + "." + (int)(Math.random() * 200);
+        RegisterRequest req = new RegisterRequest(email, "StudentPass2026!", "Minio", "Learner", null);
+        LoginResponse resp = authService.register(req, testIp, "TestAgent");
         UUID tenantId = resp.tenant() != null ? resp.tenant().id() : null;
 
-        Enrollment enr = new Enrollment("ENR-MIN-" + UUID.randomUUID().toString().substring(0, 6), user.getId(), testCohort.getId(), EnrollmentStatus.ENROLLED);
+        Enrollment enr = new Enrollment("ENR-MIN-" + UUID.randomUUID().toString().substring(0, 6), resp.user().id(), testCohort.getId(), EnrollmentStatus.ENROLLED);
         enr.setTenantId(tenantId);
         enrollmentRepository.save(enr);
 
-        return new UserSession(resp.accessToken(), user.getId(), tenantId);
+        return new UserSession(resp.accessToken(), resp.user().id(), tenantId);
     }
 
     @Test
     @DisplayName("S3/MinIO Avatar Workflow: Pre-sign -> SigV4 Upload -> Confirm Quarantine & Scan -> Approve -> Retrieve")
     void testCompleteS3AvatarLifecycle() throws Exception {
         String email = "minio_learner_" + UUID.randomUUID() + "@example.com";
-        UserSession session = registerStudent(email, "minio-org", "Minio Org");
+        UserSession session = registerStudent(email);
 
         // 1. Request real AWS SigV4 pre-signed PUT URL
         MvcResult presignResult = mockMvc.perform(post("/api/v1/onboarding/avatar/presigned-url")
@@ -234,7 +278,7 @@ public class MinioAvatarUploadIntegrationTests {
                 .andReturn();
 
         String responseJson = presignResult.getResponse().getContentAsString();
-        com.fasterxml.jackson.databind.JsonNode presignJson = objectMapper.readTree(responseJson);
+        JsonNode presignJson = objectMapper.readTree(responseJson);
         String uploadUrl = presignJson.get("uploadUrl").asText();
         String storageObjectKey = presignJson.get("storageObjectKey").asText();
 
@@ -302,10 +346,10 @@ public class MinioAvatarUploadIntegrationTests {
     @DisplayName("S3/MinIO Avatar Security: Confirm upload rejects spoofed storage keys from other users")
     void testConfirmUploadRejectsCrossUserKeySpoofing() throws Exception {
         String emailA = "user_a_" + UUID.randomUUID() + "@example.com";
-        UserSession sessionA = registerStudent(emailA, "org-a", "Org A");
+        UserSession sessionA = registerStudent(emailA);
 
         String emailB = "user_b_" + UUID.randomUUID() + "@example.com";
-        UserSession sessionB = registerStudent(emailB, "org-b", "Org B");
+        UserSession sessionB = registerStudent(emailB);
 
         // User B attempts to claim an object key belonging to User A
         String forgedKey = String.format("avatars/%s/%s/target.png", sessionA.tenantId(), sessionA.userId());
@@ -322,7 +366,7 @@ public class MinioAvatarUploadIntegrationTests {
     @DisplayName("S3/MinIO Malware Defense: Harmless EICAR payload uploaded via presigned URL is detected, infected and purged from S3")
     void testEicarPayloadUploadedToS3IsQuarantinedAndPurged() throws Exception {
         String email = "malware_test_" + UUID.randomUUID() + "@example.com";
-        UserSession session = registerStudent(email, "eicar-org", "Eicar Org");
+        UserSession session = registerStudent(email);
 
         // 1. Get presigned upload URL
         MvcResult presignResult = mockMvc.perform(post("/api/v1/onboarding/avatar/presigned-url")
@@ -332,11 +376,9 @@ public class MinioAvatarUploadIntegrationTests {
                 .andExpect(status().isOk())
                 .andReturn();
 
-        com.fasterxml.jackson.databind.JsonNode eicarPresignJson = objectMapper.readTree(
-                presignResult.getResponse().getContentAsString()
-        );
-        String eicarUploadUrl = eicarPresignJson.get("uploadUrl").asText();
-        String eicarStorageKey = eicarPresignJson.get("storageObjectKey").asText();
+        JsonNode presignJson = objectMapper.readTree(presignResult.getResponse().getContentAsString());
+        String uploadUrl = presignJson.get("uploadUrl").asText();
+        String storageObjectKey = presignJson.get("storageObjectKey").asText();
 
         // 2. Upload EICAR signature bytes disguised as PNG image
         byte[] validHeader = new byte[]{(byte) 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A};
@@ -347,7 +389,7 @@ public class MinioAvatarUploadIntegrationTests {
 
         HttpClient client = HttpClient.newHttpClient();
         HttpRequest uploadRequest = HttpRequest.newBuilder()
-                .uri(URI.create(eicarUploadUrl))
+                .uri(URI.create(uploadUrl))
                 .header("Content-Type", "image/png")
                 .PUT(HttpRequest.BodyPublishers.ofByteArray(maliciousPayload))
                 .build();
@@ -355,7 +397,7 @@ public class MinioAvatarUploadIntegrationTests {
         client.send(uploadRequest, HttpResponse.BodyHandlers.ofString());
 
         // 3. Confirm upload -> triggers validation & ClamAV scan -> fails closed and purges from S3
-        ConfirmAvatarUploadRequest confirmReq = new ConfirmAvatarUploadRequest(eicarStorageKey, "bad.png");
+        ConfirmAvatarUploadRequest confirmReq = new ConfirmAvatarUploadRequest(storageObjectKey, "bad.png");
 
         mockMvc.perform(post("/api/v1/onboarding/avatar/confirm-upload")
                         .header("Authorization", "Bearer " + session.token())
@@ -364,8 +406,7 @@ public class MinioAvatarUploadIntegrationTests {
                 .andExpect(status().isBadRequest());
 
         // Object must be purged from S3 storage
-        String s3Path = "/nexarats-academy-avatars/" + eicarStorageKey;
+        String s3Path = "/nexarats-academy-avatars/" + storageObjectKey;
         assertThat(s3Storage.containsKey(s3Path)).isFalse();
     }
 }
-
