@@ -5,6 +5,7 @@
 **Feature Branch:** `feat/phase-6b-student-onboarding`  
 **Pull Request:** [PR #1](https://github.com/saiprakash-nexarats/academy/pull/1)  
 **Baseline Reviewed Commit:** `8dc2adf2a514654cdf1e37c9117168f3967f6d05` (CI Run `42348807188`)  
+**Verified Final Commit:** `0e8b69833214eccef1c21338ffde7024e1ec2f64` (CI Run [42362974043](https://github.com/saiprakash-nexarats/academy/actions/runs/42362974043))  
 **Recovery Target:** Final Security, Tenant Isolation, MinIO S3 Uploads, Playback Authorization & Acceptance Closure  
 **Date:** November 7, 2026  
 **Phase 6 Audit Classification:** `VERIFIED_COMPLETE` (MinIO S3-Compatible Compliance Established; 6 / 70 Verified Complete, 6 / 70 Partially Complete, 57 / 70 Not Started, 1 / 70 Blocked)
@@ -145,7 +146,7 @@ Key accomplishments achieved:
 
 ## 3. Automated Test Verification Summary
 
-### Backend Unit & Security Tests (Zero-Dependency & Mock-Based):
+### Backend Automated Tests:
 - `LearnerProgressServiceTest`: 17 tests passing (onboarding completion checks, watch-time delta validation, idempotency, staff exemption).
 - `VideoPlaybackServiceTest`: 12 tests passing (mandatory profile check, incomplete profile 403, staff preview exemption, session entitlement verification).
 - `StudentOnboardingServiceTest`: 13 tests passing (enrollment validation, blocking reasons, canActivate calculation, idempotent activation).
@@ -153,7 +154,16 @@ Key accomplishments achieved:
 - `LegalAgreementServiceTest`: 9 tests passing (legacy unverified rejection, content hash mismatch, tenant override, idempotent replay).
 - `AvatarMalwareScanningServiceTest`: 10 tests passing (ClamAV null-terminated protocol, newline protocol, EICAR signature detection, fail-closed timeouts).
 - `DefaultMediaStorageServiceTest`: 5 tests passing (directory traversal prevention, provider resolution).
-- **Subtotal Unit Tests Passing:** **70 tests passing with 0 failures**.
+- `LearningSecurityIntegrationTests`: 6 tests passing (missing profile 403, incomplete profile 403, cross-tenant 403, suspended enrollment 403, revoked session 403, valid session 200 OK).
+- `MinioAvatarUploadIntegrationTests`: 3 tests passing (pre-signed SigV4 PUT upload, confirm quarantine & scan, EICAR malware detection & S3 purge, cross-user spoofing rejection 403).
+- `StudentOnboardingIntegrationTests`: 7 tests passing (draft save, full onboarding flow, multi-tenant agreements, cross-tenant avatar linking rejection 403).
+- `LearningAndVideoDeliveryIntegrationTests`: 11 tests passing (dashboard, syllabus, byte-range 206 streaming, playback sessions, checkpoints, course progress recalculation).
+- `CourseCatalogIntegrationTests`: 13 tests passing.
+- `ProgramCatalogIntegrationTests`: 13 tests passing.
+- `AdmissionsAndEnrollmentIntegrationTests`: 10 tests passing.
+- `TenantIsolationAndRlsIntegrationTests`: 5 tests passing.
+- Other unit & integration suites across academic, identity, admissions, finance, and core-backend.
+- **Total Backend Tests Run in CI:** **207 tests run, 0 failures, 0 errors, 0 skipped**.
 
 ### Frontend Tests (Vitest & Node):
 - `VideoPlayer.test.tsx`: 8 tests passing.
@@ -163,6 +173,12 @@ Key accomplishments achieved:
 - **Total Frontend Tests Passing:** **31 tests passing with 0 failures**.
 - **Web Linter (oxlint):** 0 errors, 0 warnings across 103 files.
 - **Web Production Build (tsc + vite):** Exit code 0, clean production bundle.
+
+### Continuous Integration Pipeline Gate:
+- **Repository Security & Dependency Audit:** Success
+- **Frontend (Web & Shared Tokens):** Success
+- **Core Backend (Java 21 & Spring Boot):** Success
+- **CI Run Status:** [Run 42362974043](https://github.com/saiprakash-nexarats/academy/actions/runs/42362974043) — **ALL 3 JOBS SUCCESS**
 
 ---
 

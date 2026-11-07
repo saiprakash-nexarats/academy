@@ -17,7 +17,7 @@
 | Subsystem | Health Status | Key Metrics | Active Work Remaining |
 |:---|:---|:---|:---|
 | **Frontend (`apps/web`)** | 🟢 Healthy | 0 Lint Errors, 0 Build Errors, 31 Vitest & Node Tests Passing | Bookmarking drawer, batch countdown, counseling booking |
-| **Core Backend (`services/core-backend`)** | 🟢 Healthy | Spring Modulith Architecture Verified, 70 Unit/Security Tests Passing + CI Integration Tests | CRM review portal, installment schedules, streak calculator |
+| **Core Backend (`services/core-backend`)** | 🟢 Healthy | Spring Modulith Architecture Verified, 207 Backend Tests Passing in CI (0 Failures, 0 Errors) | CRM review portal, installment schedules, streak calculator |
 | **Database Migrations** | 🟢 Verified | Flyway V1–V13 applied cleanly | Subsequent migrations |
 | **Security & RBAC** | 🟢 Hardened | Spring Security, Strict Tenant Scoping, Session Token Binding, ClamAV Fail-Closed, Content Hash Proof, Proxy Defense | Fine-grained permission evaluations |
 | **Video Playback & Media** | 🟢 Hardened | `MediaStorageService`, RFC 7233, Server-Side Watch Delta Limits, WebP Bitstream Parser, Onboarding Access Gate | Video bookmarking, transcript drawer, S3 transcode |
