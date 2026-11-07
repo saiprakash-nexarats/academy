@@ -1,5 +1,6 @@
 import React from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import {
   BookOpen,
   Clock,
@@ -13,6 +14,7 @@ import {
 } from 'lucide-react'
 import { useAuth, useModals } from '@/context'
 import { useLearnerDashboard } from '@/lib/learningApi'
+import { fetchOnboardingStatus } from '@/lib/onboardingApi'
 
 export const DashboardPage: React.FC = () => {
   const { isAuthenticated, accessToken } = useAuth()
@@ -20,6 +22,12 @@ export const DashboardPage: React.FC = () => {
   const navigate = useNavigate()
 
   const { data: dashboard, isLoading, error, refetch } = useLearnerDashboard(accessToken, isAuthenticated)
+
+  const { data: onboardingStatus } = useQuery({
+    queryKey: ['onboarding-status', accessToken],
+    queryFn: () => fetchOnboardingStatus(accessToken),
+    enabled: Boolean(isAuthenticated && accessToken),
+  })
 
   if (!isAuthenticated) {
     return (
@@ -124,6 +132,36 @@ export const DashboardPage: React.FC = () => {
       </section>
 
       <div className="academy-container -mt-8 space-y-8">
+        {/* Onboarding Pending Alert Banner */}
+        {onboardingStatus && onboardingStatus.overallStatus !== 'COMPLETED' && (
+          <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200/90 rounded-3xl p-5 shadow-card flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-3.5">
+              <div className="w-11 h-11 rounded-2xl bg-amber-500/15 border border-amber-300 flex items-center justify-center text-amber-700 shrink-0">
+                <GraduationCap className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h4 className="text-sm font-bold text-amber-950">
+                    Student Academic Onboarding Incomplete
+                  </h4>
+                  <span className="px-2 py-0.5 text-[10px] font-bold bg-amber-200 text-amber-900 rounded-md">
+                    Action Required
+                  </span>
+                </div>
+                <p className="text-xs text-amber-800 mt-0.5">
+                  Complete your student profile, upload your verified avatar, and sign the required legal agreements to activate full LMS access.
+                </p>
+              </div>
+            </div>
+            <Link
+              to="/portal/student/onboarding"
+              className="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-xl shadow-button-glow transition-all whitespace-nowrap shrink-0"
+            >
+              Complete Onboarding &rarr;
+            </Link>
+          </div>
+        )}
+
         {/* Continue Learning Target Hero Card */}
         {continueTarget && (
           <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200/90 shadow-elevated transition-all hover:shadow-xl">
@@ -154,7 +192,13 @@ export const DashboardPage: React.FC = () => {
               </div>
 
               <button
-                onClick={() => navigate(`/learning/courses/${continueTarget.courseId}/lessons/${continueTarget.lessonId}`)}
+                onClick={() => {
+                  if (onboardingStatus && onboardingStatus.overallStatus !== 'COMPLETED') {
+                    navigate('/portal/student/onboarding')
+                  } else {
+                    navigate(`/learning/courses/${continueTarget.courseId}/lessons/${continueTarget.lessonId}`)
+                  }
+                }}
                 className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-brand-600 hover:bg-brand-700 active:bg-brand-800 text-white font-bold text-xs sm:text-sm shadow-button-glow transition-all cursor-pointer shrink-0"
               >
                 <PlayCircle className="w-4 h-4 fill-white text-brand-600" />
@@ -293,7 +337,13 @@ export const DashboardPage: React.FC = () => {
                       {course.enrollmentNumber}
                     </span>
                     <button
-                      onClick={() => navigate(`/learning/courses/${course.courseId}`)}
+                      onClick={() => {
+                        if (onboardingStatus && onboardingStatus.overallStatus !== 'COMPLETED') {
+                          navigate('/portal/student/onboarding')
+                        } else {
+                          navigate(`/learning/courses/${course.courseId}`)
+                        }
+                      }}
                       className="inline-flex items-center gap-1.5 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold rounded-xl transition-all shadow-sm cursor-pointer"
                     >
                       <span>{course.completionPercentage > 0 ? 'Continue' : 'Start'}</span>

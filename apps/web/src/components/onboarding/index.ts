@@ -1,0 +1,6 @@
+export * from './StepStudentInfo'
+export * from './StepDeveloperProfile'
+export * from './StepAvatarUpload'
+export * from './StepLegalAgreements'
+export * from './StepReviewActivate'
+export * from './OnboardingWizard'

@@ -10,6 +10,18 @@ spring:
       ddl-auto: create-drop
   flyway:
     enabled: false
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 6MB
+
+nexarats:
+  storage:
+    avatar-upload-dir: target/test-avatars
+  clamav:
+    host: 127.0.0.1
+    port: 3310
+    connection-timeout-ms: 500
 
 server:
   port: 0

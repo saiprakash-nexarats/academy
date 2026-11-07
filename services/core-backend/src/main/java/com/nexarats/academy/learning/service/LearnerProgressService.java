@@ -20,6 +20,9 @@ import com.nexarats.academy.learning.repository.LearnerLessonProgressRepository;
 import com.nexarats.academy.learning.repository.LearningActivityRecordRepository;
 import com.nexarats.academy.learning.repository.LessonMediaAssetRepository;
 import com.nexarats.academy.learning.repository.PlaybackSessionRepository;
+import com.nexarats.academy.onboarding.model.OnboardingStatus;
+import com.nexarats.academy.onboarding.model.StudentProfile;
+import com.nexarats.academy.onboarding.repository.StudentProfileRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -43,6 +46,7 @@ public class LearnerProgressService {
     private final LessonMediaAssetRepository mediaAssetRepository;
     private final PlaybackSessionRepository playbackSessionRepository;
     private final CourseRepository courseRepository;
+    private final StudentProfileRepository studentProfileRepository;
 
     public LearnerProgressService(LearnerEntitlementService entitlementService,
                                   LearnerCourseProgressRepository courseProgressRepository,
@@ -50,14 +54,35 @@ public class LearnerProgressService {
                                   LearningActivityRecordRepository activityRecordRepository,
                                   LessonMediaAssetRepository mediaAssetRepository,
                                   PlaybackSessionRepository playbackSessionRepository,
-                                  CourseRepository courseRepository) {
-        this.entitlementService = entitlementService;
-        this.courseProgressRepository = courseProgressRepository;
-        this.lessonProgressRepository = lessonProgressRepository;
-        this.activityRecordRepository = activityRecordRepository;
-        this.mediaAssetRepository = mediaAssetRepository;
-        this.playbackSessionRepository = playbackSessionRepository;
-        this.courseRepository = courseRepository;
+                                  CourseRepository courseRepository,
+                                  StudentProfileRepository studentProfileRepository) {
+        this.entitlementService = Objects.requireNonNull(entitlementService, "entitlementService must not be null");
+        this.courseProgressRepository = Objects.requireNonNull(courseProgressRepository, "courseProgressRepository must not be null");
+        this.lessonProgressRepository = Objects.requireNonNull(lessonProgressRepository, "lessonProgressRepository must not be null");
+        this.activityRecordRepository = Objects.requireNonNull(activityRecordRepository, "activityRecordRepository must not be null");
+        this.mediaAssetRepository = Objects.requireNonNull(mediaAssetRepository, "mediaAssetRepository must not be null");
+        this.playbackSessionRepository = Objects.requireNonNull(playbackSessionRepository, "playbackSessionRepository must not be null");
+        this.courseRepository = Objects.requireNonNull(courseRepository, "courseRepository must not be null");
+        this.studentProfileRepository = Objects.requireNonNull(studentProfileRepository, "studentProfileRepository must not be null");
+    }
+
+    private boolean isStaffOrAdmin(Collection<String> roles) {
+        if (roles == null || roles.isEmpty()) {
+            return false;
+        }
+        return roles.stream().anyMatch(r -> {
+            String role = r.toUpperCase();
+            return role.equals("ROLE_SUPER_ADMIN")
+                    || role.equals("SUPER_ADMIN")
+                    || role.equals("ROLE_ACADEMY_ADMIN")
+                    || role.equals("ACADEMY_ADMIN")
+                    || role.equals("ROLE_ADMIN")
+                    || role.equals("ADMIN")
+                    || role.equals("ROLE_INSTRUCTOR")
+                    || role.equals("INSTRUCTOR")
+                    || role.equals("ROLE_MENTOR")
+                    || role.equals("MENTOR");
+        });
     }
 
     @Transactional
@@ -144,11 +169,16 @@ public class LearnerProgressService {
 
     @Transactional
     public PlaybackCheckpointResponse recordCheckpoint(UUID learnerUserId, UUID lessonId, PlaybackCheckpointRequest request) {
-        return recordCheckpoint(learnerUserId, lessonId, request, null);
+        return recordCheckpoint(learnerUserId, lessonId, request, null, null);
     }
 
     @Transactional
     public PlaybackCheckpointResponse recordCheckpoint(UUID learnerUserId, UUID lessonId, PlaybackCheckpointRequest request, UUID tenantId) {
+        return recordCheckpoint(learnerUserId, lessonId, request, tenantId, null);
+    }
+
+    @Transactional
+    public PlaybackCheckpointResponse recordCheckpoint(UUID learnerUserId, UUID lessonId, PlaybackCheckpointRequest request, UUID tenantId, Collection<String> roles) {
         if (request == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Checkpoint request cannot be null.");
         }
@@ -157,6 +187,24 @@ public class LearnerProgressService {
         }
         if (request.getWatchTimeDeltaSeconds() < 0 || request.getWatchTimeDeltaSeconds() > 300) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unrealistic watch time delta: must be between 0 and 300 seconds.");
+        }
+
+        // Student academic onboarding enforcement:
+        // Staff/instructors/administrators are exempted when previewing/testing content.
+        // For student learners, onboarding profile MUST exist and be COMPLETED.
+        if (!isStaffOrAdmin(roles) && tenantId != null) {
+            Optional<StudentProfile> profileOpt = studentProfileRepository.findByTenantIdAndUserId(tenantId, learnerUserId);
+            if (profileOpt.isEmpty()) {
+                log.warn("Learner {} denied checkpoint: No student profile found for tenant {}", learnerUserId, tenantId);
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                        "Student academic onboarding must be completed before recording lesson progress.");
+            }
+            if (profileOpt.get().getOnboardingStatus() != OnboardingStatus.COMPLETED) {
+                log.warn("Learner {} denied checkpoint: Academic onboarding is incomplete (status={})",
+                        learnerUserId, profileOpt.get().getOnboardingStatus());
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                        "Student academic onboarding must be completed before recording lesson progress.");
+            }
         }
 
         LearnerEntitlementService.LessonAndEntitlement le = entitlementService.verifyLessonEntitlement(learnerUserId, lessonId, tenantId);
@@ -318,6 +366,26 @@ public class LearnerProgressService {
 
     @Transactional
     public PlaybackCheckpointResponse markLessonComplete(UUID learnerUserId, UUID lessonId, UUID tenantId, Collection<String> roles) {
+        boolean isAdminOrInstructor = isStaffOrAdmin(roles);
+
+        // Student academic onboarding enforcement:
+        // Staff/instructors/administrators are exempted when previewing/testing content.
+        // For student learners, onboarding profile MUST exist and be COMPLETED.
+        if (!isAdminOrInstructor && tenantId != null) {
+            Optional<StudentProfile> profileOpt = studentProfileRepository.findByTenantIdAndUserId(tenantId, learnerUserId);
+            if (profileOpt.isEmpty()) {
+                log.warn("Learner {} denied mark lesson complete: No student profile found for tenant {}", learnerUserId, tenantId);
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                        "Student academic onboarding must be completed before marking lessons complete.");
+            }
+            if (profileOpt.get().getOnboardingStatus() != OnboardingStatus.COMPLETED) {
+                log.warn("Learner {} denied mark lesson complete: Academic onboarding is incomplete (status={})",
+                        learnerUserId, profileOpt.get().getOnboardingStatus());
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                        "Student academic onboarding must be completed before marking lessons complete.");
+            }
+        }
+
         LearnerEntitlementService.LessonAndEntitlement le = entitlementService.verifyLessonEntitlement(learnerUserId, lessonId, tenantId);
         Lesson lesson = le.lesson();
         Course course = le.course();
@@ -325,13 +393,6 @@ public class LearnerProgressService {
 
         Optional<LessonMediaAsset> mediaOpt = mediaAssetRepository.findFirstByLessonId(lessonId);
         boolean isVideoLesson = mediaOpt.isPresent() || "LECTURE".equalsIgnoreCase(lesson.getLessonType());
-
-        boolean isAdminOrInstructor = roles != null && roles.stream().anyMatch(r ->
-                r.equalsIgnoreCase("ROLE_SUPER_ADMIN") ||
-                r.equalsIgnoreCase("ROLE_ACADEMY_ADMIN") ||
-                r.equalsIgnoreCase("ROLE_ADMIN") ||
-                r.equalsIgnoreCase("ROLE_INSTRUCTOR")
-        );
 
         int durationSeconds = lesson.getDurationMinutes() * 60;
         if (mediaOpt.isPresent() && mediaOpt.get().getDurationSeconds() > 0) {

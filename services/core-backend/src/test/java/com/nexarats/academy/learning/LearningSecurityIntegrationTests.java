@@ -23,7 +23,12 @@ import com.nexarats.academy.identity.service.AuthService;
 import com.nexarats.academy.identity.service.RateLimitingService;
 import com.nexarats.academy.identity.service.SessionService;
 import com.nexarats.academy.learning.model.LearnerLessonProgress;
+import com.nexarats.academy.learning.model.PlaybackSession;
 import com.nexarats.academy.learning.repository.LearnerLessonProgressRepository;
+import com.nexarats.academy.learning.repository.PlaybackSessionRepository;
+import com.nexarats.academy.onboarding.model.OnboardingStatus;
+import com.nexarats.academy.onboarding.model.StudentProfile;
+import com.nexarats.academy.onboarding.repository.StudentProfileRepository;
 import com.nexarats.academy.tenant.Tenant;
 import com.nexarats.academy.tenant.TenantService;
 import org.junit.jupiter.api.BeforeEach;
@@ -104,9 +109,26 @@ public class LearningSecurityIntegrationTests {
     @Autowired
     private RateLimitingService rateLimitingService;
 
+    @Autowired
+    private StudentProfileRepository studentProfileRepository;
+
+    @Autowired
+    private PlaybackSessionRepository playbackSessionRepository;
+
     private Course testCourse;
     private Lesson testLesson;
     private Cohort testCohort;
+
+    private StudentProfile createCompletedProfile(UUID tenantId, UUID userId) {
+        StudentProfile profile = studentProfileRepository.findByTenantIdAndUserId(tenantId, userId)
+                .orElseGet(() -> new StudentProfile(tenantId, userId));
+        profile.setHeadline("Software Engineer");
+        profile.setBio("Passionate about cloud architectures");
+        profile.setGithubUrl("https://github.com/test");
+        profile.setOnboardingStatus(OnboardingStatus.COMPLETED);
+        profile.setOnboardingCompletedAt(java.time.Instant.now());
+        return studentProfileRepository.save(profile);
+    }
 
     @BeforeEach
     void setUp() {
@@ -294,6 +316,7 @@ public class LearningSecurityIntegrationTests {
         enr.setCourseId(testCourse.getId());
         enr.setTenantId(session.tenantId());
         enrollmentRepository.save(enr);
+        createCompletedProfile(session.tenantId(), session.userId());
 
         // Attempt direct completion without watching -> 400 Bad Request
         mockMvc.perform(post("/api/v1/learning/lessons/" + testLesson.getId() + "/complete")
@@ -312,6 +335,7 @@ public class LearningSecurityIntegrationTests {
         enr.setCourseId(testCourse.getId());
         enr.setTenantId(session.tenantId());
         enrollmentRepository.save(enr);
+        createCompletedProfile(session.tenantId(), session.userId());
 
         // Record progress satisfying >= 80%
         int durationSec = testLesson.getDurationMinutes() > 0 ? testLesson.getDurationMinutes() * 60 : 600;
@@ -328,5 +352,129 @@ public class LearningSecurityIntegrationTests {
                         .header("Authorization", "Bearer " + session.token()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.isLessonCompleted").value(true));
+    }
+
+    @Test
+    @DisplayName("Security [Negative 1]: Playback session creation rejected 403 Forbidden when student profile is missing")
+    void testPlaybackSessionMissingStudentProfileRejected403() throws Exception {
+        String email = "missing_profile_" + UUID.randomUUID() + "@example.com";
+        UserSession session = registerUserWithTenant(email, "STUDENT", "miss-prof-tenant", "Miss Profile Org");
+
+        Enrollment enr = new Enrollment("ENR-MP-" + UUID.randomUUID().toString().substring(0, 6), session.userId(), testCohort.getId(), EnrollmentStatus.ENROLLED);
+        enr.setCourseId(testCourse.getId());
+        enr.setTenantId(session.tenantId());
+        enrollmentRepository.save(enr);
+
+        mockMvc.perform(post("/api/v1/learning/lessons/" + testLesson.getId() + "/playback-session")
+                        .header("Authorization", "Bearer " + session.token()))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("Security [Negative 2]: Playback session creation rejected 403 Forbidden when student onboarding is incomplete")
+    void testPlaybackSessionIncompleteStudentProfileRejected403() throws Exception {
+        String email = "incomplete_profile_" + UUID.randomUUID() + "@example.com";
+        UserSession session = registerUserWithTenant(email, "STUDENT", "inc-prof-tenant", "Inc Profile Org");
+
+        Enrollment enr = new Enrollment("ENR-INC-" + UUID.randomUUID().toString().substring(0, 6), session.userId(), testCohort.getId(), EnrollmentStatus.ENROLLED);
+        enr.setCourseId(testCourse.getId());
+        enr.setTenantId(session.tenantId());
+        enrollmentRepository.save(enr);
+
+        StudentProfile incProfile = new StudentProfile(session.tenantId(), session.userId());
+        incProfile.setOnboardingStatus(OnboardingStatus.IN_PROGRESS);
+        studentProfileRepository.save(incProfile);
+
+        mockMvc.perform(post("/api/v1/learning/lessons/" + testLesson.getId() + "/playback-session")
+                        .header("Authorization", "Bearer " + session.token()))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("Security [Negative 3]: Playback session creation rejected 403 Forbidden for student from another tenant")
+    void testPlaybackSessionCrossTenantAccessRejected403() throws Exception {
+        // Create Tenant A with course enrollment
+        String emailA = "student_a_" + UUID.randomUUID() + "@example.com";
+        UserSession sessionA = registerUserWithTenant(emailA, "STUDENT", "tenant-a-org", "Tenant A Org");
+        createCompletedProfile(sessionA.tenantId(), sessionA.userId());
+
+        // Create Tenant B
+        String emailB = "student_b_" + UUID.randomUUID() + "@example.com";
+        UserSession sessionB = registerUserWithTenant(emailB, "STUDENT", "tenant-b-org", "Tenant B Org");
+        createCompletedProfile(sessionB.tenantId(), sessionB.userId());
+
+        // Student B tries to create playback session in Tenant A's testLesson
+        mockMvc.perform(post("/api/v1/learning/lessons/" + testLesson.getId() + "/playback-session")
+                        .header("Authorization", "Bearer " + sessionB.token()))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("Security [Negative 4]: Playback session creation rejected 403 Forbidden when enrollment is withdrawn or suspended")
+    void testPlaybackSessionSuspendedEnrollmentRejected403() throws Exception {
+        String email = "suspended_student_" + UUID.randomUUID() + "@example.com";
+        UserSession session = registerUserWithTenant(email, "STUDENT", "susp-tenant", "Suspended Org");
+        createCompletedProfile(session.tenantId(), session.userId());
+
+        Enrollment enr = new Enrollment("ENR-SUSP-" + UUID.randomUUID().toString().substring(0, 6), session.userId(), testCohort.getId(), EnrollmentStatus.SUSPENDED);
+        enr.setCourseId(testCourse.getId());
+        enr.setTenantId(session.tenantId());
+        enrollmentRepository.save(enr);
+
+        mockMvc.perform(post("/api/v1/learning/lessons/" + testLesson.getId() + "/playback-session")
+                        .header("Authorization", "Bearer " + session.token()))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("Security [Negative 5]: Media streaming on existing session token rejected 403 Forbidden after entitlement revocation")
+    void testMediaStreamingExistingSessionAfterRevocationRejected403() throws Exception {
+        String email = "revoke_student_" + UUID.randomUUID() + "@example.com";
+        UserSession session = registerUserWithTenant(email, "STUDENT", "rev-tenant", "Revoke Org");
+        createCompletedProfile(session.tenantId(), session.userId());
+
+        Enrollment enr = new Enrollment("ENR-REV-" + UUID.randomUUID().toString().substring(0, 6), session.userId(), testCohort.getId(), EnrollmentStatus.ENROLLED);
+        enr.setCourseId(testCourse.getId());
+        enr.setTenantId(session.tenantId());
+        enrollmentRepository.save(enr);
+
+        // Create authorized session
+        String sessionToken = "vtok_test_rev_" + UUID.randomUUID().toString().replace("-", "");
+        PlaybackSession ps = new PlaybackSession(
+                sessionToken,
+                session.userId(),
+                enr.getId(),
+                testLesson.getId(),
+                null,
+                java.time.Instant.now().plus(java.time.Duration.ofHours(1))
+        );
+        playbackSessionRepository.save(ps);
+
+        // Revoke entitlement by transitioning enrollment to WITHDRAWN
+        enr.setStatus(EnrollmentStatus.WITHDRAWN);
+        enrollmentRepository.save(enr);
+
+        // Attempt streaming with the existing token -> rejected 403 Forbidden
+        mockMvc.perform(get("/api/v1/learning/media/stream?token=" + sessionToken))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("Security [Positive 6]: Playback session creation succeeds 200 OK with completed onboarding and valid active enrollment")
+    void testPlaybackSessionCompletedOnboardingAndActiveEnrollmentSucceeds200() throws Exception {
+        String email = "valid_student_" + UUID.randomUUID() + "@example.com";
+        UserSession session = registerUserWithTenant(email, "STUDENT", "valid-tenant", "Valid Org");
+        createCompletedProfile(session.tenantId(), session.userId());
+
+        Enrollment enr = new Enrollment("ENR-OK-" + UUID.randomUUID().toString().substring(0, 6), session.userId(), testCohort.getId(), EnrollmentStatus.ENROLLED);
+        enr.setCourseId(testCourse.getId());
+        enr.setTenantId(session.tenantId());
+        enrollmentRepository.save(enr);
+
+        mockMvc.perform(post("/api/v1/learning/lessons/" + testLesson.getId() + "/playback-session")
+                        .header("Authorization", "Bearer " + session.token()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sessionToken").isString())
+                .andExpect(jsonPath("$.streamUrl").isString());
     }
 }

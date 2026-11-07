@@ -21,6 +21,9 @@ import com.nexarats.academy.learning.repository.LessonMediaAssetRepository;
 import com.nexarats.academy.learning.repository.PlaybackSessionRepository;
 import com.nexarats.academy.learning.service.LearnerEntitlementService;
 import com.nexarats.academy.learning.service.LearnerProgressService;
+import com.nexarats.academy.onboarding.model.OnboardingStatus;
+import com.nexarats.academy.onboarding.model.StudentProfile;
+import com.nexarats.academy.onboarding.repository.StudentProfileRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -64,6 +67,9 @@ public class LearnerProgressServiceTest {
     @Mock
     private CourseRepository courseRepository;
 
+    @Mock
+    private StudentProfileRepository studentProfileRepository;
+
     private LearnerProgressService progressService;
 
     private UUID learnerUserId;
@@ -85,13 +91,19 @@ public class LearnerProgressServiceTest {
                 activityRecordRepository,
                 mediaAssetRepository,
                 playbackSessionRepository,
-                courseRepository
+                courseRepository,
+                studentProfileRepository
         );
 
         learnerUserId = UUID.randomUUID();
         tenantId = UUID.randomUUID();
         courseId = UUID.randomUUID();
         lessonId = UUID.randomUUID();
+
+        StudentProfile profile = new StudentProfile(tenantId, learnerUserId);
+        profile.setOnboardingStatus(OnboardingStatus.COMPLETED);
+        org.mockito.Mockito.lenient().when(studentProfileRepository.findByTenantIdAndUserId(org.mockito.ArgumentMatchers.eq(tenantId), org.mockito.ArgumentMatchers.eq(learnerUserId)))
+                .thenReturn(Optional.of(profile));
 
         course = new Course();
         course.setId(courseId);
@@ -482,5 +494,30 @@ public class LearnerProgressServiceTest {
         assertThatThrownBy(() -> progressService.recordCheckpoint(learnerUserId, lessonId, request, tenantId))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("Unrealistic watch time delta");
+    }
+
+    @Test
+    @DisplayName("Progress checkpoint is denied with 403 Forbidden if student profile record is missing")
+    void testRecordCheckpointMissingStudentProfileForbidden() {
+        org.mockito.Mockito.when(studentProfileRepository.findByTenantIdAndUserId(tenantId, learnerUserId))
+                .thenReturn(Optional.empty());
+
+        PlaybackCheckpointRequest request = new PlaybackCheckpointRequest(60, 15, "chk_miss_profile");
+        assertThatThrownBy(() -> progressService.recordCheckpoint(learnerUserId, lessonId, request, tenantId, List.of("ROLE_STUDENT")))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("Student academic onboarding must be completed before recording lesson progress");
+    }
+
+    @Test
+    @DisplayName("Mark lesson complete is denied with 403 Forbidden if student onboarding is incomplete")
+    void testMarkLessonCompleteIncompleteStudentProfileForbidden() {
+        StudentProfile incomplete = new StudentProfile(tenantId, learnerUserId);
+        incomplete.setOnboardingStatus(OnboardingStatus.IN_PROGRESS);
+        org.mockito.Mockito.when(studentProfileRepository.findByTenantIdAndUserId(tenantId, learnerUserId))
+                .thenReturn(Optional.of(incomplete));
+
+        assertThatThrownBy(() -> progressService.markLessonComplete(learnerUserId, lessonId, tenantId, List.of("ROLE_STUDENT")))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("Student academic onboarding must be completed before marking lessons complete");
     }
 }

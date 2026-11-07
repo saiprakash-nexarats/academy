@@ -16,6 +16,9 @@ import com.nexarats.academy.learning.repository.PlaybackSessionRepository;
 import com.nexarats.academy.learning.service.LearnerEntitlementService;
 import com.nexarats.academy.learning.service.MediaStorageService;
 import com.nexarats.academy.learning.service.VideoPlaybackService;
+import com.nexarats.academy.onboarding.model.OnboardingStatus;
+import com.nexarats.academy.onboarding.model.StudentProfile;
+import com.nexarats.academy.onboarding.repository.StudentProfileRepository;
 import jakarta.servlet.http.HttpServletResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -63,6 +66,9 @@ public class VideoPlaybackServiceTest {
     @Mock
     private MediaStorageService mediaStorageService;
 
+    @Mock
+    private StudentProfileRepository studentProfileRepository;
+
     private VideoPlaybackService videoPlaybackService;
 
     private UUID learnerUserId;
@@ -84,7 +90,8 @@ public class VideoPlaybackServiceTest {
                 playbackSessionRepository,
                 lessonProgressRepository,
                 enrollmentRepository,
-                mediaStorageService
+                mediaStorageService,
+                studentProfileRepository
         );
 
         learnerUserId = UUID.randomUUID();
@@ -92,6 +99,11 @@ public class VideoPlaybackServiceTest {
         courseId = UUID.randomUUID();
         lessonId1 = UUID.randomUUID();
         lessonId2 = UUID.randomUUID();
+
+        StudentProfile profile = new StudentProfile(tenantId, learnerUserId);
+        profile.setOnboardingStatus(OnboardingStatus.COMPLETED);
+        lenient().when(studentProfileRepository.findByTenantIdAndUserId(eq(tenantId), eq(learnerUserId)))
+                .thenReturn(Optional.of(profile));
 
         Course course = new Course();
         course.setId(courseId);
@@ -276,6 +288,112 @@ public class VideoPlaybackServiceTest {
         assertThatThrownBy(() -> videoPlaybackService.streamMedia(token, null, response))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("Enrollment is no longer active for playback");
+    }
+
+    @Test
+    @DisplayName("Create playback session is denied with 403 Forbidden if student profile record is missing")
+    void testCreatePlaybackSessionMissingProfileForbidden() {
+        when(studentProfileRepository.findByTenantIdAndUserId(eq(tenantId), eq(learnerUserId)))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> videoPlaybackService.createPlaybackSession(learnerUserId, lessonId1, tenantId, java.util.List.of("ROLE_STUDENT")))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("Student academic onboarding must be completed before accessing course playback sessions");
+    }
+
+    @Test
+    @DisplayName("Create playback session is denied with 403 Forbidden if student onboarding is IN_PROGRESS")
+    void testCreatePlaybackSessionIncompleteProfileForbidden() {
+        StudentProfile incomplete = new StudentProfile(tenantId, learnerUserId);
+        incomplete.setOnboardingStatus(OnboardingStatus.IN_PROGRESS);
+        when(studentProfileRepository.findByTenantIdAndUserId(eq(tenantId), eq(learnerUserId)))
+                .thenReturn(Optional.of(incomplete));
+
+        assertThatThrownBy(() -> videoPlaybackService.createPlaybackSession(learnerUserId, lessonId1, tenantId, java.util.List.of("ROLE_STUDENT")))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("Student academic onboarding must be completed before accessing course playback sessions");
+    }
+
+    @Test
+    @DisplayName("Create playback session allows ACADEMY_ADMIN or INSTRUCTOR even if student profile is absent")
+    void testCreatePlaybackSessionAdminExemptFromOnboarding() {
+        when(entitlementService.verifyLessonEntitlement(learnerUserId, lessonId1, tenantId))
+                .thenReturn(new LearnerEntitlementService.LessonAndEntitlement(lesson1, lesson1.getModule().getVersion().getCourse(), activeEnrollment));
+        when(mediaAssetRepository.findFirstByLessonId(lessonId1)).thenReturn(Optional.of(mediaAsset1));
+        when(lessonProgressRepository.findByLearnerUserIdAndLessonIdAndEnrollmentId(learnerUserId, lessonId1, activeEnrollment.getId()))
+                .thenReturn(Optional.empty());
+
+        PlaybackSessionResponse resp = videoPlaybackService.createPlaybackSession(
+                learnerUserId, lessonId1, tenantId, java.util.List.of("ROLE_ACADEMY_ADMIN")
+        );
+
+        assertThat(resp).isNotNull();
+        assertThat(resp.getSessionToken()).startsWith("vtok_");
+        verify(studentProfileRepository, never()).findByTenantIdAndUserId(any(), any());
+    }
+
+    @Test
+    @DisplayName("Stream media is denied with 403 Forbidden if entitlement was revoked after session creation")
+    void testStreamMediaRevokedEntitlementForbidden() {
+        String token = "vtok_revoked_entitlement_token";
+        PlaybackSession session = new PlaybackSession(
+                token, learnerUserId, activeEnrollment.getId(), lessonId1, mediaAsset1.getId(), Instant.now().plus(1, ChronoUnit.HOURS)
+        );
+
+        when(playbackSessionRepository.findBySessionToken(token)).thenReturn(Optional.of(session));
+        when(enrollmentRepository.findById(activeEnrollment.getId())).thenReturn(Optional.of(activeEnrollment));
+        when(entitlementService.verifyLessonEntitlement(learnerUserId, lessonId1, tenantId))
+                .thenThrow(new ResponseStatusException(HttpStatus.FORBIDDEN, "Active enrollment required to access course content."));
+
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        assertThatThrownBy(() -> videoPlaybackService.streamMedia(token, null, response))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("Learner entitlement has been revoked or expired");
+    }
+
+    @Test
+    @DisplayName("Stream media is denied with 403 Forbidden if student profile onboarding status was reset/incomplete")
+    void testStreamMediaIncompleteProfileForbidden() {
+        String token = "vtok_incomplete_onboarding_token";
+        PlaybackSession session = new PlaybackSession(
+                token, learnerUserId, activeEnrollment.getId(), lessonId1, mediaAsset1.getId(), Instant.now().plus(1, ChronoUnit.HOURS)
+        );
+
+        when(playbackSessionRepository.findBySessionToken(token)).thenReturn(Optional.of(session));
+        when(enrollmentRepository.findById(activeEnrollment.getId())).thenReturn(Optional.of(activeEnrollment));
+        when(entitlementService.verifyLessonEntitlement(learnerUserId, lessonId1, tenantId))
+                .thenReturn(new LearnerEntitlementService.LessonAndEntitlement(lesson1, lesson1.getModule().getVersion().getCourse(), activeEnrollment));
+
+        StudentProfile incomplete = new StudentProfile(tenantId, learnerUserId);
+        incomplete.setOnboardingStatus(OnboardingStatus.IN_PROGRESS);
+        when(studentProfileRepository.findByTenantIdAndUserId(eq(tenantId), eq(learnerUserId)))
+                .thenReturn(Optional.of(incomplete));
+
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        assertThatThrownBy(() -> videoPlaybackService.streamMedia(token, null, response))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("Student academic onboarding must be completed before streaming course media");
+    }
+
+    @Test
+    @DisplayName("Stream media is denied with 403 Forbidden if student profile record is deleted after session creation")
+    void testStreamMediaMissingProfileForbidden() {
+        String token = "vtok_missing_profile_token";
+        PlaybackSession session = new PlaybackSession(
+                token, learnerUserId, activeEnrollment.getId(), lessonId1, mediaAsset1.getId(), Instant.now().plus(1, ChronoUnit.HOURS)
+        );
+
+        when(playbackSessionRepository.findBySessionToken(token)).thenReturn(Optional.of(session));
+        when(enrollmentRepository.findById(activeEnrollment.getId())).thenReturn(Optional.of(activeEnrollment));
+        when(entitlementService.verifyLessonEntitlement(learnerUserId, lessonId1, tenantId))
+                .thenReturn(new LearnerEntitlementService.LessonAndEntitlement(lesson1, lesson1.getModule().getVersion().getCourse(), activeEnrollment));
+        when(studentProfileRepository.findByTenantIdAndUserId(eq(tenantId), eq(learnerUserId)))
+                .thenReturn(Optional.empty());
+
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        assertThatThrownBy(() -> videoPlaybackService.streamMedia(token, null, response))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("Student academic onboarding must be completed before streaming course media");
     }
 }
 

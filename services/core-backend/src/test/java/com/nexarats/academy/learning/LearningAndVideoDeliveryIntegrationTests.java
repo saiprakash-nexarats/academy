@@ -31,6 +31,9 @@ import com.nexarats.academy.learning.model.LearnerLessonProgress;
 import com.nexarats.academy.learning.model.PlaybackSession;
 import com.nexarats.academy.learning.repository.LearnerLessonProgressRepository;
 import com.nexarats.academy.learning.repository.PlaybackSessionRepository;
+import com.nexarats.academy.onboarding.model.OnboardingStatus;
+import com.nexarats.academy.onboarding.model.StudentProfile;
+import com.nexarats.academy.onboarding.repository.StudentProfileRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -102,6 +105,9 @@ public class LearningAndVideoDeliveryIntegrationTests {
     private LearnerLessonProgressRepository progressRepository;
 
     @Autowired
+    private StudentProfileRepository studentProfileRepository;
+
+    @Autowired
     private RateLimitingService rateLimitingService;
 
     private Course testCourse;
@@ -142,7 +148,13 @@ public class LearningAndVideoDeliveryIntegrationTests {
         String testIp = "10.0." + (int)(Math.random() * 200) + "." + (int)(Math.random() * 200);
         RegisterRequest req = new RegisterRequest(email, "StudentPass2026!", firstName, lastName, null);
         LoginResponse resp = authService.register(req, testIp, "TestAgent");
-        return new UserAuth(resp.accessToken(), resp.user().id(), resp.tenant() != null ? resp.tenant().id() : null);
+        UUID tenantId = resp.tenant() != null ? resp.tenant().id() : null;
+
+        StudentProfile profile = new StudentProfile(tenantId, resp.user().id());
+        profile.setOnboardingStatus(OnboardingStatus.COMPLETED);
+        studentProfileRepository.save(profile);
+
+        return new UserAuth(resp.accessToken(), resp.user().id(), tenantId);
     }
 
     private record UserAuth(String token, UUID userId, UUID tenantId) {}

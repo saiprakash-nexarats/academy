@@ -14,6 +14,7 @@ import {
   NotFoundPage,
   DashboardPage,
   CoursePlayerPage,
+  OnboardingPage,
 } from '@/pages'
 import { ModalProvider, AuthProvider } from '@/context'
 import { ScrollToTop } from '@/components/common'
@@ -49,6 +50,8 @@ export const App: React.FC = () => {
                 <Route path="about" element={<AboutPage />} />
                 <Route path="contact" element={<ContactPage />} />
                 <Route path="dashboard" element={<DashboardPage />} />
+                <Route path="onboarding" element={<OnboardingPage />} />
+                <Route path="portal/student/onboarding" element={<OnboardingPage />} />
                 <Route path="learning" element={<DashboardPage />} />
                 <Route path="learning/courses/:courseId" element={<CoursePlayerPage />} />
                 <Route path="learning/courses/:courseId/lessons/:lessonId" element={<CoursePlayerPage />} />

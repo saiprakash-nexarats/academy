@@ -27,6 +27,10 @@ spring:
     baseline-on-migrate: true
     baseline-version: 0
     locations: classpath:db/migration
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 6MB
   data:
     redis:
       host: ${REDIS_HOST:localhost}
@@ -56,6 +60,20 @@ nexarats:
       fallback-strategy: ${RATE_LIMIT_FALLBACK_STRATEGY:memory}
     cookie:
       secure: ${COOKIE_SECURE:false}
+  storage:
+    provider: ${STORAGE_PROVIDER:LOCAL_STORAGE}
+    avatar-upload-dir: ${AVATAR_UPLOAD_DIR:target/avatars}
+    s3:
+      bucket: ${NEXARATS_STORAGE_S3_BUCKET:nexarats-academy-avatars}
+      region: ${NEXARATS_STORAGE_S3_REGION:us-east-1}
+      endpoint: ${NEXARATS_STORAGE_S3_ENDPOINT:}
+      access-key: ${NEXARATS_STORAGE_S3_ACCESS_KEY:minio_admin}
+      secret-key: ${NEXARATS_STORAGE_S3_SECRET_KEY:minio_secret_dev}
+      path-style-access-enabled: ${NEXARATS_STORAGE_S3_PATH_STYLE:true}
+  clamav:
+    host: ${CLAMAV_HOST:localhost}
+    port: ${CLAMAV_PORT:3310}
+    connection-timeout-ms: ${CLAMAV_TIMEOUT_MS:1500}
 
 server:
   port: ${SERVER_PORT:8085}

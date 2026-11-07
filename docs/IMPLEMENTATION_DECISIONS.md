@@ -42,3 +42,47 @@
 - **Decision:** Retain normalized, authoritative counting via `learner_lesson_progress` queries. Denormalized counter columns are prone to write drift and race conditions during concurrent multi-tab sessions.
 - **Status:** APPROVED & DOCUMENTED in Phase 6 Recovery.
 
+---
+
+## ADR-006: Student Onboarding Lifecycle, Avatar Security & ClamAV Heuristic Resilience
+- **Context:** Original Roadmap Phase 6 required ClamAV anti-malware scanning for profile avatars. In local environments or lightweight CI runners without a ClamAV daemon container, connecting to port 3310 causes connection errors.
+- **Decision:** Implement a dual-mode scanning service: attempt live ClamAV daemon connection via TCP `zINSTREAM`. If unreachable, fallback to deep binary heuristic pattern inspection (PHP tags, `<script>`, shell shebangs, MZ/ELF headers) and transparently record the heuristic scan status in the audit log without pretending a live ClamAV daemon ran.
+- **Status:** APPROVED & IMPLEMENTED in Phase 6B.
+
+---
+
+## ADR-008: Two-Stage Quarantine-to-Approved S3 Key Architecture & Overwrite Defense
+- **Context:** Pre-signed PUT URLs allow direct client uploads to object storage. If the issued pre-signed URL points directly to the final avatar key and remains valid for 15 minutes, a client could overwrite approved bytes with unscanned malware after the server marked the asset clean.
+- **Decision:** Pre-signed PUT URLs target temporary, isolated quarantine keys only (`quarantine/avatars/{tenantId}/{userId}/{uuid}.{ext}`). Server issues and records single-use `avatar_upload_tickets` in PostgreSQL (Flyway V14). Upon MIME validation and clean ClamAV scan, verified bytes are atomically promoted to a brand-new, unguessable approved key (`avatars/{tenantId}/{userId}/{uuid}.{ext}`), and the quarantined object is deleted from storage. Even if the pre-signed URL is re-executed, it cannot alter the approved avatar, and re-confirmation fails with HTTP 400 Bad Request.
+- **Status:** APPROVED & IMPLEMENTED in Phase 6B Final Security Hardening.
+
+---
+
+## ADR-009: Fail-Closed S3 Presigning, Bounded Stream Inspection & Playback Stream Profile Defense
+- **Context:** Silently falling back to fabricated HMAC URLs in S3 mode causes nonfunctional upload loops. Unbounded S3 byte downloads risk heap exhaustion (OOM). Additionally, if a student profile is deleted after session creation, streaming media chunks should not proceed.
+- **Decision:** In `S3_COMPATIBLE` mode, `AvatarStorageService` explicitly fails with `IllegalStateException` if `s3Presigner` is missing. Bounded streaming enforces S3 `headObject` verification and max 5MB streaming limit. In `VideoPlaybackService.streamMedia()`, missing or deleted student profiles immediately return HTTP 403 Forbidden, preserving verified staff/admin exemptions.
+- **Status:** APPROVED & IMPLEMENTED in Phase 6B Final Security Hardening.
+
+
+---
+
+## ADR-007: Cryptographic Legal Agreement Integrity & Clickwrap Audit Trail
+- **Context:** Legal terms (Terms of Service, Academic Integrity, Code of Conduct) must be legally enforceable and immune to silent post-acceptance modifications.
+- **Decision:** Persist SHA-256 hashes of agreement content in `legal_agreements.content_hash`. Re-compute and verify the hash before recording e-signatures in `student_agreement_acceptances` with client IP, user agent, and timestamp.
+- **Status:** APPROVED & IMPLEMENTED in Phase 6B.
+
+---
+
+## ADR-008: Two-Stage Quarantine-to-Approved S3 Key Architecture & Overwrite Defense
+- **Context:** Pre-signed PUT URLs allow direct client uploads to object storage. If the issued pre-signed URL points directly to the final avatar key and remains valid for 15 minutes, a client could overwrite approved bytes with unscanned malware after the server marked the asset clean.
+- **Decision:** Pre-signed PUT URLs target temporary, isolated quarantine keys only (`quarantine/avatars/{tenantId}/{userId}/{uuid}.{ext}`). Server issues and records single-use `avatar_upload_tickets` in PostgreSQL (Flyway V14). Upon MIME validation and clean ClamAV scan, verified bytes are atomically promoted to a brand-new, unguessable approved key (`avatars/{tenantId}/{userId}/{uuid}.{ext}`), and the quarantined object is deleted from storage. Even if the pre-signed URL is re-executed, it cannot alter the approved avatar, and re-confirmation fails with HTTP 400 Bad Request.
+- **Status:** APPROVED & IMPLEMENTED in Phase 6B Final Security Hardening.
+
+---
+
+## ADR-009: Fail-Closed S3 Presigning, Bounded Stream Inspection & Playback Stream Profile Defense
+- **Context:** Silently falling back to fabricated HMAC URLs in S3 mode causes nonfunctional upload loops. Unbounded S3 byte downloads risk heap exhaustion (OOM). Additionally, if a student profile is deleted after session creation, streaming media chunks should not proceed.
+- **Decision:** In `S3_COMPATIBLE` mode, `AvatarStorageService` explicitly fails with `IllegalStateException` if `s3Presigner` is missing. Bounded streaming enforces S3 `headObject` verification and max 5MB streaming limit. In `VideoPlaybackService.streamMedia()`, missing or deleted student profiles immediately return HTTP 403 Forbidden, preserving verified staff/admin exemptions.
+- **Status:** APPROVED & IMPLEMENTED in Phase 6B Final Security Hardening.
+
+
