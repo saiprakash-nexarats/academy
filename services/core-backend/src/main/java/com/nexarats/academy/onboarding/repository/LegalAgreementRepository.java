@@ -17,7 +17,6 @@ public interface LegalAgreementRepository extends JpaRepository<LegalAgreement, 
 
     @Query("SELECT la FROM LegalAgreement la WHERE la.isActive = true " +
             "AND (la.effectiveDate IS NULL OR la.effectiveDate <= :now) " +
-            "AND (la.expirationDate IS NULL OR la.expirationDate > :now) " +
             "AND (:tenantId IS NULL OR la.tenantId = :tenantId OR la.tenantId IS NULL) " +
             "ORDER BY la.agreementType ASC, la.effectiveDate DESC")
     List<LegalAgreement> findActiveAgreementsForTenant(@Param("tenantId") UUID tenantId, @Param("now") Instant now);
